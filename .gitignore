@@ -5,6 +5,7 @@
 
 # Env / secrets
 .env
+.qa-local-compose
 
 # Go
 vendor/
