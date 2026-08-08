@@ -6,5 +6,6 @@ services:
     network_mode: host
     ports: []
     environment:
-      DB_URI: postgres://postgres:postgres@localhost:5432/go_template?sslmode=disable
+      DB_URI: postgres://postgres:postgres@localhost:5432/smart_assistant_api?sslmode=disable
       REDIS_ADDR: localhost:6379
+      GOOGLE_OAUTH_TOKEN_URL: http://localhost:18080/token

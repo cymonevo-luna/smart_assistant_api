@@ -1,0 +1,22 @@
+# QA-local overlay: mock Google OAuth token endpoint + smoke-test credentials.
+# Included by scripts/qa-local-up.sh for both bridge and host-network API modes.
+services:
+  oauth-mock:
+    build: ./scripts/oauth-mock-server
+    ports:
+      - "18080:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8080/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  api:
+    environment:
+      GOOGLE_OAUTH_CLIENT_ID: qa-smoke-client-id
+      GOOGLE_OAUTH_CLIENT_SECRET: qa-smoke-secret
+      GOOGLE_OAUTH_REDIRECT_URL: http://localhost:8080/api/v1/plugins/oauth/google/callback
+      GOOGLE_OAUTH_TOKEN_URL: http://oauth-mock:8080/token
+    depends_on:
+      oauth-mock:
+        condition: service_started
