@@ -1,6 +1,7 @@
 package assistant
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 
@@ -57,7 +58,7 @@ func firstMissingArgument(manifest plugin.PluginManifest, args map[string]any) (
 		}
 		val, ok := args[arg.Name]
 		if !ok || isEmptyValue(val) {
-			return arg.Name, arg.Prompt
+			return arg.Name, interpolatePrompt(arg.Prompt, args)
 		}
 	}
 	return "", ""
@@ -76,5 +77,44 @@ func isEmptyValue(v any) bool {
 }
 
 func confirmationPrompt(pluginName string, args map[string]any) string {
+	email := stringArgValue(args, "attendee_email")
+	if email != "" {
+		name := stringArgValue(args, "attendee_name")
+		if name != "" {
+			return fmt.Sprintf("Should I create a calendar event with %s at %s?", name, email)
+		}
+		return fmt.Sprintf("Should I create a calendar event with %s?", email)
+	}
 	return "Should I go ahead with " + pluginName + "?"
+}
+
+var promptPlaceholder = regexp.MustCompile(`\{([a-zA-Z0-9_]+)\}`)
+
+func interpolatePrompt(prompt string, args map[string]any) string {
+	if prompt == "" || args == nil {
+		return prompt
+	}
+	return promptPlaceholder.ReplaceAllStringFunc(prompt, func(match string) string {
+		key := strings.Trim(match, "{}")
+		if val := stringArgValue(args, key); val != "" {
+			return val
+		}
+		return match
+	})
+}
+
+func stringArgValue(args map[string]any, key string) string {
+	if args == nil {
+		return ""
+	}
+	val, ok := args[key]
+	if !ok || val == nil {
+		return ""
+	}
+	switch v := val.(type) {
+	case string:
+		return strings.TrimSpace(v)
+	default:
+		return strings.TrimSpace(fmt.Sprint(v))
+	}
 }

@@ -124,7 +124,8 @@ type LLMConfig struct {
 
 // ComposioConfig configures the Composio tool execution client.
 type ComposioConfig struct {
-	APIKey string `env:"COMPOSIO_API_KEY"`
+	APIKey  string `env:"COMPOSIO_API_KEY"`
+	BaseURL string `env:"COMPOSIO_BASE_URL"`
 }
 
 type OAuthGoogleConfig struct {

@@ -57,14 +57,25 @@ func TestStripWakeWord(t *testing.T) {
 func TestFirstMissingArgument(t *testing.T) {
 	manifest := plugin.PluginManifest{
 		Arguments: []plugin.ManifestArgument{
-			{Name: "title", Required: true, Prompt: "What is the title?"},
-			{Name: "attendee_email", Required: true, Prompt: "What is Janet's email address?"},
+			{Name: "attendee_name", Required: true, Prompt: "Who would you like to meet with?"},
+			{Name: "attendee_email", Required: true, Prompt: "What is {attendee_name}'s email address?"},
 		},
 	}
 
-	name, prompt := firstMissingArgument(manifest, map[string]any{"title": "Meeting"})
+	name, prompt := firstMissingArgument(manifest, map[string]any{"attendee_name": "Janet"})
 	if name != "attendee_email" || prompt != "What is Janet's email address?" {
 		t.Fatalf("unexpected missing arg: %q / %q", name, prompt)
+	}
+}
+
+func TestConfirmationPromptIncludesAttendeeEmail(t *testing.T) {
+	got := confirmationPrompt("Google Meet Scheduler", map[string]any{
+		"attendee_name":  "Janet",
+		"attendee_email": "janet@gmail.com",
+	})
+	want := "Should I create a calendar event with Janet at janet@gmail.com?"
+	if got != want {
+		t.Fatalf("confirmationPrompt() = %q, want %q", got, want)
 	}
 }
 
