@@ -43,6 +43,7 @@ type Config struct {
 	Composio    ComposioConfig
 	OAuthGoogle OAuthGoogleConfig
 	Credentials CredentialsConfig
+	Places      PlacesConfig
 }
 
 type AppConfig struct {
@@ -139,6 +140,13 @@ type CredentialsConfig struct {
 	EncryptionKey string `env:"CREDENTIALS_ENCRYPTION_KEY"`
 }
 
+// PlacesConfig configures geocoding and nearby place search providers.
+type PlacesConfig struct {
+	Provider string `env:"PLACES_PROVIDER" envDefault:"mock"`
+	APIKey   string `env:"PLACES_API_KEY"`
+	BaseURL  string `env:"PLACES_BASE_URL"`
+}
+
 // Load reads configuration from the environment. The .env file, if present, is
 // loaded first but never overrides variables already set in the environment.
 func Load() (*Config, error) {
@@ -182,6 +190,15 @@ func (c *Config) validate() error {
 	case QueueRedis, QueueMemory:
 	default:
 		return fmt.Errorf("unsupported QUEUE_DRIVER %q", c.Queue.Driver)
+	}
+
+	switch c.Places.Provider {
+	case "google", "nominatim", "mock", "":
+	default:
+		return fmt.Errorf("unsupported PLACES_PROVIDER %q", c.Places.Provider)
+	}
+	if c.Places.Provider == "google" && c.Places.APIKey == "" {
+		return fmt.Errorf("PLACES_API_KEY is required when PLACES_PROVIDER=google")
 	}
 
 	return nil

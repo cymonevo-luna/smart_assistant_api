@@ -23,6 +23,7 @@ import (
 	"github.com/cymonevo/go_template/pkg/crypto"
 	"github.com/cymonevo/go_template/pkg/llm"
 	"github.com/cymonevo/go_template/pkg/logger"
+	"github.com/cymonevo/go_template/pkg/places"
 	"github.com/cymonevo/go_template/pkg/queue"
 	"github.com/cymonevo/go_template/pkg/ratelimit"
 	"github.com/cymonevo/go_template/pkg/store"
@@ -60,6 +61,7 @@ type Container struct {
 	ReminderService          *reminder.Service
 	ReminderRepo             reminder.Repository
 	GoogleOAuthSetupService  *oauthgoogle.Service
+	PlacesProvider           places.Provider
 
 	redisClient *redis.Client
 	pingers     map[string]handler.Pinger
@@ -146,6 +148,17 @@ func BuildContainer(ctx context.Context, cfg *config.Config, log logger.Logger) 
 		c.PluginCredentialService,
 		googleExchanger,
 	)
+
+	placesProvider, err := places.NewProvider(places.Config{
+		Provider:  c.Cfg.Places.Provider,
+		APIKey:    c.Cfg.Places.APIKey,
+		BaseURL:   c.Cfg.Places.BaseURL,
+		UserAgent: c.Cfg.App.Name,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("places provider: %w", err)
+	}
+	c.PlacesProvider = places.NewCachingProvider(placesProvider, 5*time.Minute)
 
 	classifier := llm.NewClassifier(c.Cfg.LLM.Provider, c.Cfg.LLM.APIKey, c.Cfg.LLM.Model)
 	stubExecutor := assistant.NewStubExecutor(log)
