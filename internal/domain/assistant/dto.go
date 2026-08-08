@@ -42,9 +42,10 @@ type ProcessMessageInput struct {
 
 // ActionInfo describes plugin execution in a reply.
 type ActionInfo struct {
-	PluginSlug string         `json:"plugin_slug,omitempty"`
-	Status     ActionStatus   `json:"status,omitempty"`
-	Payload    map[string]any `json:"payload,omitempty"`
+	PluginSlug string       `json:"plugin_slug,omitempty"`
+	Status     ActionStatus `json:"status,omitempty"`
+	// Payload carries execution results or blocked-plugin metadata (reason, install_id, plugin_slug).
+	Payload map[string]any `json:"payload,omitempty"`
 }
 
 // Reply is the assistant's response to a user message.

@@ -2,6 +2,8 @@ package assistant
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -313,5 +315,240 @@ func TestProcessMessageNoPluginsAcknowledgment(t *testing.T) {
 	}
 	if out.Reply.Action != nil {
 		t.Fatal("expected no action in reply")
+	}
+}
+
+func TestProcessMessageSetupIncompletePlugin(t *testing.T) {
+	sessions := newFakeSessionRepo()
+	messages := &fakeMessageRepo{}
+	settingsRepo := &fakeSettingsRepo{
+		settings: &assistantsettings.Settings{
+			UserID:    "user-1",
+			WakeWord:  "Jarvis",
+			UpdatedAt: time.Now().UTC(),
+		},
+	}
+	settingsSvc := assistantsettings.NewService(settingsRepo)
+	log, _ := logger.New("debug", false)
+
+	catalog := plugin.Plugin{
+		ID:   "plugin-1",
+		Slug: "google-calendar-meet",
+		Name: "Google Meet Scheduler",
+		Manifest: plugin.PluginManifest{
+			Triggers:      []string{"schedule a meeting"},
+			RequiredSetup: true,
+			SetupType:     plugin.SetupTypeOAuthGoogle,
+			Executor:      plugin.Executor{Type: plugin.ExecutorTypeComposio, Config: map[string]any{}},
+		},
+	}
+	userPlugins := fakeUserPluginRepo{installs: []userplugin.UserPlugin{{
+		ID: "install-1", UserID: "user-1", PluginID: "plugin-1", Enabled: true,
+		SetupStatus: userplugin.SetupStatusNotStarted,
+	}}}
+
+	svc := NewService(sessions, messages, settingsSvc, userPlugins, fakePluginRepo{plugins: []plugin.Plugin{catalog}}, llm.NewMockClassifier(), NewStubExecutor(log), log)
+
+	session := &Session{
+		ID:        "sess-1",
+		UserID:    "user-1",
+		Status:    SessionStatusActive,
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	}
+	_ = sessions.Create(context.Background(), session)
+
+	out, err := svc.ProcessMessage(context.Background(), "user-1", "sess-1", ProcessMessageInput{
+		Text:   "Schedule a meeting with Janet at 2 PM tomorrow",
+		Source: MessageSourceButton,
+	})
+	if err != nil {
+		t.Fatalf("ProcessMessage: %v", err)
+	}
+	if out.Reply.Type != ReplyTypeText {
+		t.Fatalf("expected text reply, got %q", out.Reply.Type)
+	}
+	if !strings.Contains(out.Reply.Text, "setup") {
+		t.Fatalf("expected setup guidance, got %q", out.Reply.Text)
+	}
+	if out.Reply.Action == nil {
+		t.Fatal("expected action in reply")
+	}
+	if out.Reply.Action.Status != ActionStatusPending {
+		t.Fatalf("expected pending status, got %q", out.Reply.Action.Status)
+	}
+	if out.Reply.Action.Payload["reason"] != actionReasonSetupIncomplete {
+		t.Fatalf("expected setup_incomplete reason, got %v", out.Reply.Action.Payload["reason"])
+	}
+	if out.Reply.Action.Payload["install_id"] != "install-1" {
+		t.Fatalf("expected install_id install-1, got %v", out.Reply.Action.Payload["install_id"])
+	}
+	if out.Reply.Action.Payload["plugin_slug"] != "google-calendar-meet" {
+		t.Fatalf("expected plugin_slug google-calendar-meet, got %v", out.Reply.Action.Payload["plugin_slug"])
+	}
+}
+
+func TestProcessMessageDisabledPlugin(t *testing.T) {
+	sessions := newFakeSessionRepo()
+	messages := &fakeMessageRepo{}
+	settingsRepo := &fakeSettingsRepo{
+		settings: &assistantsettings.Settings{
+			UserID:    "user-1",
+			WakeWord:  "Jarvis",
+			UpdatedAt: time.Now().UTC(),
+		},
+	}
+	settingsSvc := assistantsettings.NewService(settingsRepo)
+	log, _ := logger.New("debug", false)
+
+	catalog := plugin.Plugin{
+		ID:   "plugin-1",
+		Slug: "reminder",
+		Name: "Reminder",
+		Manifest: plugin.PluginManifest{
+			Triggers:      []string{"remind me"},
+			RequiredSetup: false,
+			Executor:      plugin.Executor{Type: plugin.ExecutorTypeBuiltin, Config: map[string]any{"builtin_adapter": "reminder"}},
+		},
+	}
+	userPlugins := fakeUserPluginRepo{installs: []userplugin.UserPlugin{{
+		ID: "install-1", UserID: "user-1", PluginID: "plugin-1", Enabled: false,
+		SetupStatus: userplugin.SetupStatusCompleted,
+	}}}
+
+	svc := NewService(sessions, messages, settingsSvc, userPlugins, fakePluginRepo{plugins: []plugin.Plugin{catalog}}, llm.NewMockClassifier(), NewStubExecutor(log), log)
+
+	session := &Session{
+		ID:        "sess-1",
+		UserID:    "user-1",
+		Status:    SessionStatusActive,
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	}
+	_ = sessions.Create(context.Background(), session)
+
+	out, err := svc.ProcessMessage(context.Background(), "user-1", "sess-1", ProcessMessageInput{
+		Text:   "Remind me to call mom at 3pm",
+		Source: MessageSourceButton,
+	})
+	if err != nil {
+		t.Fatalf("ProcessMessage: %v", err)
+	}
+	if !strings.Contains(strings.ToLower(out.Reply.Text), "disabled") {
+		t.Fatalf("expected disabled guidance, got %q", out.Reply.Text)
+	}
+	if out.Reply.Action == nil {
+		t.Fatal("expected action in reply")
+	}
+	if out.Reply.Action.Payload["reason"] != actionReasonPluginDisabled {
+		t.Fatalf("expected plugin_disabled reason, got %v", out.Reply.Action.Payload["reason"])
+	}
+}
+
+func TestProcessMessageNoMatchWithEligiblePlugins(t *testing.T) {
+	sessions := newFakeSessionRepo()
+	messages := &fakeMessageRepo{}
+	settingsRepo := &fakeSettingsRepo{
+		settings: &assistantsettings.Settings{
+			UserID:    "user-1",
+			WakeWord:  "Jarvis",
+			UpdatedAt: time.Now().UTC(),
+		},
+	}
+	settingsSvc := assistantsettings.NewService(settingsRepo)
+	log, _ := logger.New("debug", false)
+
+	catalog := plugin.Plugin{
+		ID:   "plugin-1",
+		Slug: "lights",
+		Name: "Lights",
+		Manifest: plugin.PluginManifest{
+			Triggers:      []string{"turn on lights"},
+			RequiredSetup: false,
+			Executor:      plugin.Executor{Type: plugin.ExecutorTypeBuiltin, Config: map[string]any{}},
+		},
+	}
+	userPlugins := fakeUserPluginRepo{installs: []userplugin.UserPlugin{{
+		ID: "install-1", UserID: "user-1", PluginID: "plugin-1", Enabled: true,
+		SetupStatus: userplugin.SetupStatusCompleted,
+	}}}
+
+	svc := NewService(sessions, messages, settingsSvc, userPlugins, fakePluginRepo{plugins: []plugin.Plugin{catalog}}, llm.NewMockClassifier(), NewStubExecutor(log), log)
+
+	session := &Session{
+		ID:        "sess-1",
+		UserID:    "user-1",
+		Status:    SessionStatusActive,
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	}
+	_ = sessions.Create(context.Background(), session)
+
+	out, err := svc.ProcessMessage(context.Background(), "user-1", "sess-1", ProcessMessageInput{
+		Text:   "What's the weather today",
+		Source: MessageSourceButton,
+	})
+	if err != nil {
+		t.Fatalf("ProcessMessage: %v", err)
+	}
+	if out.Reply.Text != noMatchText {
+		t.Fatalf("expected no-match text, got %q", out.Reply.Text)
+	}
+}
+
+type failingClassifier struct{}
+
+func (failingClassifier) Classify(context.Context, llm.ClassifyRequest) (*llm.ClassifyResult, error) {
+	return nil, fmt.Errorf("classifier unavailable")
+}
+
+func TestProcessMessageClassifierError(t *testing.T) {
+	sessions := newFakeSessionRepo()
+	messages := &fakeMessageRepo{}
+	settingsRepo := &fakeSettingsRepo{
+		settings: &assistantsettings.Settings{
+			UserID:    "user-1",
+			WakeWord:  "Jarvis",
+			UpdatedAt: time.Now().UTC(),
+		},
+	}
+	settingsSvc := assistantsettings.NewService(settingsRepo)
+	log, _ := logger.New("debug", false)
+
+	catalog := plugin.Plugin{
+		ID:   "plugin-1",
+		Slug: "lights",
+		Name: "Lights",
+		Manifest: plugin.PluginManifest{
+			Triggers:      []string{"turn on lights"},
+			RequiredSetup: false,
+			Executor:      plugin.Executor{Type: plugin.ExecutorTypeBuiltin, Config: map[string]any{}},
+		},
+	}
+	userPlugins := fakeUserPluginRepo{installs: []userplugin.UserPlugin{{
+		ID: "install-1", UserID: "user-1", PluginID: "plugin-1", Enabled: true,
+		SetupStatus: userplugin.SetupStatusCompleted,
+	}}}
+
+	svc := NewService(sessions, messages, settingsSvc, userPlugins, fakePluginRepo{plugins: []plugin.Plugin{catalog}}, failingClassifier{}, NewStubExecutor(log), log)
+
+	session := &Session{
+		ID:        "sess-1",
+		UserID:    "user-1",
+		Status:    SessionStatusActive,
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	}
+	_ = sessions.Create(context.Background(), session)
+
+	out, err := svc.ProcessMessage(context.Background(), "user-1", "sess-1", ProcessMessageInput{
+		Text:   "turn on lights",
+		Source: MessageSourceButton,
+	})
+	if err != nil {
+		t.Fatalf("ProcessMessage: %v", err)
+	}
+	if out.Reply.Text != classifierUnavailableText {
+		t.Fatalf("expected classifier unavailable text, got %q", out.Reply.Text)
 	}
 }
