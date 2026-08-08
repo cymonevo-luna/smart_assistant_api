@@ -381,8 +381,8 @@ func TestService_DeleteByMessageMatchNotFoundAndAmbiguous(t *testing.T) {
 	if err := svc.DeleteByMessage(ctx, "user-1", "mom"); err != nil {
 		t.Fatalf("DeleteByMessage: %v", err)
 	}
-	if len(repo.items) != 0 {
-		t.Fatalf("expected reminder deleted, got %d items", len(repo.items))
+	if repo.items["a"].Status != StatusCancelled {
+		t.Fatalf("expected reminder cancelled, got %q", repo.items["a"].Status)
 	}
 }
 

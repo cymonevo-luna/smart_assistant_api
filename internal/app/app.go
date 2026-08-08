@@ -146,5 +146,8 @@ func buildRouter(cfg *config.Config, log logger.Logger, c *Container) http.Handl
 	placesHandler := handler.NewPlacesHandler(c.PlacesProvider, c.Validator)
 	placesHandler.Register(r, appmw.Auth(c.Tokens))
 
+	reminderHandler := handler.NewReminderHandler(c.ReminderService)
+	reminderHandler.Register(r, appmw.Auth(c.Tokens))
+
 	return r
 }

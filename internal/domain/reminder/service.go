@@ -68,6 +68,21 @@ func (s *Service) List(ctx context.Context, userID string, filter ListFilter) ([
 	return items, nil
 }
 
+// FindOwnedByID returns a reminder when it belongs to the given user.
+func (s *Service) FindOwnedByID(ctx context.Context, userID, id string) (*Reminder, error) {
+	reminder, err := s.repo.FindByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, response.NewNotFound("reminder not found")
+		}
+		return nil, response.NewInternal("failed to load reminder").Wrap(err)
+	}
+	if reminder.UserID != userID {
+		return nil, response.NewForbidden("cannot access another user's reminder")
+	}
+	return reminder, nil
+}
+
 // DeleteByMessage removes a single pending reminder matched by case-insensitive
 // substring on message.
 func (s *Service) DeleteByMessage(ctx context.Context, userID, messageQuery string) error {
@@ -86,7 +101,10 @@ func (s *Service) DeleteByMessage(ctx context.Context, userID, messageQuery stri
 	case 0:
 		return response.NewNotFound("reminder not found")
 	case 1:
-		if err := s.repo.Delete(ctx, matches[0].ID); err != nil {
+		now := time.Now().UTC()
+		matches[0].Status = StatusCancelled
+		matches[0].UpdatedAt = now
+		if err := s.repo.Update(ctx, matches[0].ID, &matches[0]); err != nil {
 			return response.NewInternal("failed to delete reminder").Wrap(err)
 		}
 		return nil

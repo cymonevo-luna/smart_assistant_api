@@ -59,6 +59,7 @@ type Container struct {
 	PluginRepo               plugin.Repository
 	PluginCredentialService  *plugincredential.Service
 	ReminderService          *reminder.Service
+	ReminderRepo             reminder.Repository
 	GoogleOAuthSetupService  *oauthgoogle.Service
 	PlacesProvider           places.Provider
 
@@ -127,6 +128,7 @@ func BuildContainer(ctx context.Context, cfg *config.Config, log logger.Logger) 
 	credentialsCleaner := plugincredential.NewCleaner(c.PluginCredentialService, userPluginRepo)
 
 	reminderRepo := reminder.NewRepository(reminderStore)
+	c.ReminderRepo = reminderRepo
 	c.ReminderService = reminder.NewService(reminderRepo)
 	reminderCleaner := reminder.NewCleaner(c.ReminderService)
 	c.UserPluginService = userplugin.NewService(userPluginRepo, pluginRepo, credentialsCleaner, reminderCleaner)
@@ -160,6 +162,7 @@ func BuildContainer(ctx context.Context, cfg *config.Config, log logger.Logger) 
 
 	classifier := llm.NewClassifier(c.Cfg.LLM.Provider, c.Cfg.LLM.APIKey, c.Cfg.LLM.Model)
 	stubExecutor := assistant.NewStubExecutor(log)
+	builtinExecutor := assistant.NewBuiltinExecutor(c.ReminderService, log)
 	var composioExec *assistant.ComposioExecutor
 	if c.Cfg.Composio.APIKey != "" {
 		composioClient := composio.New(composio.Config{
@@ -169,7 +172,7 @@ func BuildContainer(ctx context.Context, cfg *config.Config, log logger.Logger) 
 		composioExec = assistant.NewComposioExecutor(composioClient, log)
 		c.Log.Info("composio client ready")
 	}
-	executor := assistant.NewRoutingExecutor(composioExec, stubExecutor)
+	executor := assistant.NewRoutingExecutor(composioExec, builtinExecutor, stubExecutor)
 
 	assistantSessionRepo := assistant.NewSessionRepository(assistantSessionStore)
 	assistantMessageRepo := assistant.NewMessageRepository(assistantMessageStore)
@@ -325,6 +328,8 @@ func (c *Container) registerJobs() {
 			logger.String("email", evt.Email))
 		return nil
 	})
+
+	c.Scheduler.Register("reminder-dispatch", 30*time.Second, reminder.Dispatch(c.ReminderService, c.Log))
 }
 
 // StartBackground launches the queue consumers and the periodic scheduler.

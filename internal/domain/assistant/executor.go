@@ -6,6 +6,7 @@ import (
 
 	"github.com/cymonevo/go_template/internal/domain/assistant/builtin"
 	"github.com/cymonevo/go_template/internal/domain/plugin"
+	"github.com/cymonevo/go_template/internal/domain/reminder"
 	"github.com/cymonevo/go_template/pkg/composio"
 	"github.com/cymonevo/go_template/pkg/logger"
 )
@@ -73,6 +74,42 @@ func (e *ComposioExecutor) Execute(ctx context.Context, userID string, p *plugin
 	return out, nil
 }
 
+// BuiltinExecutor executes builtin-type plugin manifests.
+type BuiltinExecutor struct {
+	reminders *reminder.Service
+	log       logger.Logger
+}
+
+// NewBuiltinExecutor constructs a BuiltinExecutor.
+func NewBuiltinExecutor(reminders *reminder.Service, log logger.Logger) *BuiltinExecutor {
+	return &BuiltinExecutor{reminders: reminders, log: log}
+}
+
+// Execute dispatches to the configured builtin adapter.
+func (e *BuiltinExecutor) Execute(ctx context.Context, userID string, p *plugin.Plugin, args map[string]any) (map[string]any, error) {
+	if p.Manifest.Executor.Type != plugin.ExecutorTypeBuiltin {
+		return nil, fmt.Errorf("executor type %q is not builtin", p.Manifest.Executor.Type)
+	}
+
+	adapter, _ := p.Manifest.Executor.Config["builtin_adapter"].(string)
+	if adapter == "" {
+		switch p.Slug {
+		case builtin.ReminderSlug:
+			adapter = builtin.AdapterReminder
+		default:
+			return nil, fmt.Errorf("builtin adapter not configured for plugin %q", p.Slug)
+		}
+	}
+
+	switch adapter {
+	case builtin.AdapterReminder:
+		installID, _ := args["install_id"].(string)
+		return builtin.ExecuteReminder(ctx, e.reminders, userID, installID, args)
+	default:
+		return nil, fmt.Errorf("unsupported builtin adapter %q for plugin %q", adapter, p.Slug)
+	}
+}
+
 // StubExecutor simulates successful plugin execution when Composio is not configured.
 type StubExecutor struct {
 	log logger.Logger
@@ -112,12 +149,13 @@ func mapBuiltinAdapterArgs(p *plugin.Plugin, args map[string]any) (map[string]an
 // RoutingExecutor dispatches to the correct backend by manifest executor type.
 type RoutingExecutor struct {
 	composio *ComposioExecutor
+	builtin  *BuiltinExecutor
 	stub     *StubExecutor
 }
 
 // NewRoutingExecutor builds an executor that prefers composio when available.
-func NewRoutingExecutor(composio *ComposioExecutor, stub *StubExecutor) *RoutingExecutor {
-	return &RoutingExecutor{composio: composio, stub: stub}
+func NewRoutingExecutor(composio *ComposioExecutor, builtinExec *BuiltinExecutor, stub *StubExecutor) *RoutingExecutor {
+	return &RoutingExecutor{composio: composio, builtin: builtinExec, stub: stub}
 }
 
 // Execute routes execution based on manifest executor type.
@@ -126,6 +164,11 @@ func (r *RoutingExecutor) Execute(ctx context.Context, userID string, p *plugin.
 	case plugin.ExecutorTypeComposio:
 		if r.composio != nil {
 			return r.composio.Execute(ctx, userID, p, args)
+		}
+		return r.stub.Execute(ctx, userID, p, args)
+	case plugin.ExecutorTypeBuiltin:
+		if r.builtin != nil {
+			return r.builtin.Execute(ctx, userID, p, args)
 		}
 		return r.stub.Execute(ctx, userID, p, args)
 	default:
