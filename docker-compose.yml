@@ -12,7 +12,7 @@ services:
         required: false
     environment:
       DB_DRIVER: postgres
-      DB_URI: postgres://postgres:postgres@postgres:5432/go_template?sslmode=disable
+      DB_URI: postgres://postgres:postgres@postgres:5432/smart_assistant_api?sslmode=disable
       CACHE_DRIVER: redis
       QUEUE_DRIVER: redis
       REDIS_ADDR: redis:6379
@@ -28,7 +28,7 @@ services:
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: go_template
+      POSTGRES_DB: smart_assistant_api
     ports:
       - "5432:5432"
     volumes:

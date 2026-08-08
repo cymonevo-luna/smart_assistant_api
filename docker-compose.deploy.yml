@@ -1,11 +1,11 @@
-# go_template DEPLOY compose (daemon / systemd).
+# smart_assistant_api DEPLOY compose (daemon / systemd).
 #
-# This file only RUNS the prebuilt API image (go_template:latest) plus its
-# datastores (Postgres + Redis) and a one-shot migrate job. It contains NO
+# This file only RUNS the prebuilt API image (smart_assistant_api:latest) plus
+# its datastores (Postgres + Redis) and a one-shot migrate job. It contains NO
 # `build:` sections, so it can live in a deploy directory WITHOUT the source
-# tree (e.g. /opt/go_template) — which is exactly how the systemd unit written
-# by scripts/refresh-daemon.sh invokes it (`docker compose up -d` from the
-# deploy dir).
+# tree (e.g. /opt/smart_assistant_api) — which is exactly how the systemd unit
+# written by scripts/refresh-daemon.sh invokes it (`docker compose up -d` from
+# the deploy dir).
 #
 # Build/refresh from the repo:
 #   scripts/refresh-daemon.sh            # build image + sync + restart daemon
@@ -16,10 +16,20 @@
 # volumes, ports). The deploy compose must never reference a relative build
 # context, because the deploy dir has no source tree.
 #
+# Host ports are intentionally UNCOMMON so this stack coexists with other
+# services on a shared host (the local-dev compose uses the standard
+# 8080/5432). API is published on :8791; Postgres on 127.0.0.1:8792 (localhost
+# only, for inspection/debugging); Redis stays internal (unpublished).
+#
+# Public routing: a Cloudflare Tunnel hostname jarvis-api.cymonevo.com ->
+# 127.0.0.1:8791 must be configured in the Cloudflare dashboard (not managed
+# from this repo) for GOOGLE_OAUTH_REDIRECT_URL and the app's API_BASE_URL to
+# resolve.
+#
 # Validate after editing:
 #   docker compose -f docker-compose.deploy.yml config
 
-name: go_template
+name: smart_assistant_api
 
 services:
   postgres:
@@ -28,9 +38,9 @@ services:
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: go_template
+      POSTGRES_DB: smart_assistant_api
     ports:
-      - "5432:5432"
+      - "127.0.0.1:8792:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -38,6 +48,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+      start_period: 30s
 
   redis:
     image: redis:7-alpine
@@ -56,7 +67,7 @@ services:
   # dir has no source tree, so migrations run from the image rather than from a
   # mounted init script.
   migrate:
-    image: go_template:latest
+    image: smart_assistant_api:latest
     pull_policy: never
     restart: "no"
     depends_on:
@@ -64,12 +75,13 @@ services:
         condition: service_healthy
     environment:
       DB_DRIVER: postgres
-      DB_URI: postgres://postgres:postgres@postgres:5432/go_template?sslmode=disable
+      DB_URI: postgres://postgres:postgres@postgres:5432/smart_assistant_api?sslmode=disable
+      MIGRATIONS_PATH: file:///app/migrations
     entrypoint: ["/app/migrate"]
     command: ["up"]
 
   api:
-    image: go_template:latest
+    image: smart_assistant_api:latest
     pull_policy: never
     restart: unless-stopped
     # Inject every credential/setting from .env into the container at startup.
@@ -80,14 +92,16 @@ services:
       - path: .env
         required: false
     environment:
+      APP_ENV: production
       DB_DRIVER: postgres
-      DB_URI: postgres://postgres:postgres@postgres:5432/go_template?sslmode=disable
+      DB_URI: postgres://postgres:postgres@postgres:5432/smart_assistant_api?sslmode=disable
+      MIGRATIONS_PATH: file:///app/migrations
       CACHE_DRIVER: redis
       QUEUE_DRIVER: redis
       REDIS_ADDR: redis:6379
       RATE_LIMIT_ENABLED: "true"
     ports:
-      - "8080:8080"
+      - "8791:8080"
     depends_on:
       postgres:
         condition: service_healthy
