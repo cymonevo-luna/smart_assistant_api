@@ -21,10 +21,10 @@
 # 8080/5432). API is published on :8791; Postgres on 127.0.0.1:8792 (localhost
 # only, for inspection/debugging); Redis stays internal (unpublished).
 #
-# Public routing: a Cloudflare Tunnel hostname jarvis-api.cymonevo.com ->
-# 127.0.0.1:8791 must be configured in the Cloudflare dashboard (not managed
-# from this repo) for GOOGLE_OAUTH_REDIRECT_URL and the app's API_BASE_URL to
-# resolve.
+# Public routing: scripts/configure-cloudflare-tunnel.sh (invoked by
+# refresh-daemon.sh when Cloudflare env vars are set) publishes
+# jarvis-api.cymonevo.com -> 127.0.0.1:8791 via a Cloudflare Tunnel + proxied
+# CNAME. GOOGLE_OAUTH_REDIRECT_URL must use that hostname.
 #
 # Validate after editing:
 #   docker compose -f docker-compose.deploy.yml config
@@ -104,7 +104,7 @@ services:
       GOOGLE_OAUTH_REDIRECT_URL: https://jarvis-api.cymonevo.com/api/v1/plugins/oauth/google/callback
       APP_OAUTH_SUCCESS_REDIRECT: smartassistant://plugin-setup/complete
     ports:
-      - "8791:8080"
+      - "127.0.0.1:8791:8080"
     depends_on:
       postgres:
         condition: service_healthy
