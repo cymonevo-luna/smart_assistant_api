@@ -14,6 +14,7 @@ package integration
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"testing"
@@ -25,8 +26,9 @@ import (
 
 // Shared across all tests in the suite. Set up once in TestMain.
 var (
-	application *app.App
-	server      *httptest.Server
+	application     *app.App
+	server          *httptest.Server
+	mockGoogleOAuth *httptest.Server
 )
 
 // TestMain builds the application, starts the in-process HTTP server, runs the
@@ -38,6 +40,17 @@ func TestMain(m *testing.M) {
 
 func runSuite(m *testing.M) int {
 	ctx := context.Background()
+
+	mockGoogleOAuth = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"access_token":"mock-access","refresh_token":"mock-refresh","token_type":"Bearer","expires_in":3600}`))
+	}))
+	defer mockGoogleOAuth.Close()
+
+	_ = os.Setenv("GOOGLE_OAUTH_TOKEN_URL", mockGoogleOAuth.URL)
+	_ = os.Setenv("GOOGLE_OAUTH_CLIENT_ID", "integration-client-id")
+	_ = os.Setenv("GOOGLE_OAUTH_CLIENT_SECRET", "integration-secret")
+	_ = os.Setenv("GOOGLE_OAUTH_REDIRECT_URL", "http://localhost:8080/api/v1/plugins/oauth/google/callback")
 
 	a, err := app.New(ctx)
 	if err != nil {
