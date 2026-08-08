@@ -8,6 +8,7 @@ import (
 	"github.com/cymonevo/go_template/internal/config"
 	"github.com/cymonevo/go_template/internal/domain/assistant"
 	"github.com/cymonevo/go_template/internal/domain/assistant_settings"
+	"github.com/cymonevo/go_template/internal/domain/calendar/availability"
 	"github.com/cymonevo/go_template/internal/domain/plugin"
 	"github.com/cymonevo/go_template/internal/domain/plugin_credential"
 	"github.com/cymonevo/go_template/internal/domain/plugin_setup/oauth_google"
@@ -62,6 +63,7 @@ type Container struct {
 	ReminderRepo             reminder.Repository
 	GoogleOAuthSetupService  *oauthgoogle.Service
 	PlacesProvider           places.Provider
+	CalendarAvailability     availability.AvailabilityService
 
 	redisClient *redis.Client
 	pingers     map[string]handler.Pinger
@@ -170,6 +172,7 @@ func BuildContainer(ctx context.Context, cfg *config.Config, log logger.Logger) 
 			BaseURL: c.Cfg.Composio.BaseURL,
 		})
 		composioExec = assistant.NewComposioExecutor(composioClient, log)
+		c.CalendarAvailability = availability.NewService(composioClient)
 		c.Log.Info("composio client ready")
 	}
 	executor := assistant.NewRoutingExecutor(composioExec, builtinExecutor, stubExecutor)

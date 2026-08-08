@@ -7,8 +7,12 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
+	"time"
 )
+
+const findFreeSlotsTool = "GOOGLECALENDAR_FIND_FREE_SLOTS"
 
 // mockComposio records execute calls and can be toggled to return HTTP 500.
 type mockComposio struct {
@@ -63,6 +67,49 @@ func (m *mockComposio) handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	slug := strings.TrimPrefix(r.URL.Path, "/api/v3/tools/execute/")
+	if slug == findFreeSlotsTool {
+		m.writeFindFreeSlotsResponse(w)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	_, _ = w.Write([]byte(`{"successful":true,"data":{}}`))
+}
+
+func (m *mockComposio) writeFindFreeSlotsResponse(w http.ResponseWriter) {
+	loc, err := time.LoadLocation("Asia/Jakarta")
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	now := time.Now().In(loc)
+	var friday time.Time
+	for d := 0; d < 14; d++ {
+		candidate := now.AddDate(0, 0, d)
+		if candidate.Weekday() == time.Friday {
+			friday = time.Date(candidate.Year(), candidate.Month(), candidate.Day(), 14, 0, 0, 0, loc)
+			break
+		}
+	}
+	if friday.IsZero() {
+		friday = now.Add(24 * time.Hour)
+	}
+	end := friday.Add(time.Hour)
+
+	payload, _ := json.Marshal(map[string]any{
+		"free_slots": []map[string]string{
+			{
+				"start": friday.Format(time.RFC3339),
+				"end":   end.Format(time.RFC3339),
+			},
+		},
+	})
+	resp, _ := json.Marshal(map[string]any{
+		"successful": true,
+		"data":       json.RawMessage(payload),
+	})
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(resp)
 }
