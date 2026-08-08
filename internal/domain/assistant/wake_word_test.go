@@ -3,6 +3,8 @@ package assistant
 import (
 	"testing"
 
+	"strings"
+
 	"github.com/cymonevo/go_template/internal/domain/plugin"
 )
 
@@ -85,5 +87,48 @@ func TestConfirmationParsing(t *testing.T) {
 	}
 	if !isConfirmationNo("no") || !isConfirmationNo("cancel") {
 		t.Fatal("expected no responses to be recognized")
+	}
+}
+
+func TestInferReminderOperation(t *testing.T) {
+	args := map[string]any{}
+	if got := inferReminderOperation("list all reminders for today", args); got != "list" {
+		t.Fatalf("got %q, want list", got)
+	}
+	if got := inferReminderOperation("delete my reminder for milk", args); got != "delete" {
+		t.Fatalf("got %q, want delete", got)
+	}
+	if got := inferReminderOperation("remind me to call mom", args); got != "create" {
+		t.Fatalf("got %q, want create", got)
+	}
+}
+
+func TestFirstMissingReminderArgument(t *testing.T) {
+	args := map[string]any{"operation": "create"}
+	name, prompt := firstMissingReminderArgument("create", args)
+	if name != "message" || prompt != "What should I remind you about?" {
+		t.Fatalf("got %q / %q", name, prompt)
+	}
+
+	args = map[string]any{"operation": "create", "message": "call mom"}
+	name, prompt = firstMissingReminderArgument("create", args)
+	if name != "remind_at" || prompt != "When should I remind you?" {
+		t.Fatalf("got %q / %q", name, prompt)
+	}
+}
+
+func TestConfirmationPromptReminder(t *testing.T) {
+	got := confirmationPromptReminder("create", map[string]any{
+		"message":   "call mom",
+		"remind_at": "2026-08-09T14:00:00Z",
+	})
+	if !strings.Contains(got, "call mom") || !strings.Contains(got, "Should I set a reminder") {
+		t.Fatalf("unexpected prompt: %q", got)
+	}
+
+	got = confirmationPromptReminder("delete", map[string]any{"message": "call mom"})
+	want := "Should I delete the reminder to call mom?"
+	if got != want {
+		t.Fatalf("confirmationPromptReminder() = %q, want %q", got, want)
 	}
 }
