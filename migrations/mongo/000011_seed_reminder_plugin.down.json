@@ -1,0 +1,11 @@
+[
+  {
+    "delete": "plugins",
+    "deletes": [
+      {
+        "q": { "slug": "reminder" },
+        "limit": 1
+      }
+    ]
+  }
+]
