@@ -215,7 +215,7 @@ func TestService_InstallCreatesWithSetupStatus(t *testing.T) {
 	pluginRepo := newFakePluginRepo()
 	seedCatalogPlugin(pluginRepo, "plugin-1", "google-calendar-meet", true)
 
-	svc := NewService(userRepo, pluginRepo, nil)
+	svc := NewService(userRepo, pluginRepo, nil, nil)
 	ctx := context.Background()
 
 	got, err := svc.Install(ctx, "user-1", "google-calendar-meet")
@@ -238,7 +238,7 @@ func TestService_InstallNoSetupRequiredCompleted(t *testing.T) {
 	pluginRepo := newFakePluginRepo()
 	seedCatalogPlugin(pluginRepo, "plugin-2", "builtin-tool", false)
 
-	svc := NewService(userRepo, pluginRepo, nil)
+	svc := NewService(userRepo, pluginRepo, nil, nil)
 	ctx := context.Background()
 
 	got, err := svc.Install(ctx, "user-1", "builtin-tool")
@@ -251,7 +251,7 @@ func TestService_InstallNoSetupRequiredCompleted(t *testing.T) {
 }
 
 func TestService_InstallUnknownSlugNotFound(t *testing.T) {
-	svc := NewService(newFakeUserPluginRepo(), newFakePluginRepo(), nil)
+	svc := NewService(newFakeUserPluginRepo(), newFakePluginRepo(), nil, nil)
 	ctx := context.Background()
 
 	_, err := svc.Install(ctx, "user-1", "does-not-exist")
@@ -272,7 +272,7 @@ func TestService_InstallIdempotent(t *testing.T) {
 	pluginRepo := newFakePluginRepo()
 	seedCatalogPlugin(pluginRepo, "plugin-1", "google-calendar-meet", true)
 
-	svc := NewService(userRepo, pluginRepo, nil)
+	svc := NewService(userRepo, pluginRepo, nil, nil)
 	ctx := context.Background()
 
 	first, err := svc.Install(ctx, "user-1", "google-calendar-meet")
@@ -296,7 +296,7 @@ func TestService_UninstallRemovesRow(t *testing.T) {
 	pluginRepo := newFakePluginRepo()
 	seedCatalogPlugin(pluginRepo, "plugin-1", "google-calendar-meet", true)
 
-	svc := NewService(userRepo, pluginRepo, nil)
+	svc := NewService(userRepo, pluginRepo, nil, nil)
 	ctx := context.Background()
 
 	installed, err := svc.Install(ctx, "user-1", "google-calendar-meet")
@@ -317,7 +317,7 @@ func TestService_SetEnabledToggle(t *testing.T) {
 	pluginRepo := newFakePluginRepo()
 	seedCatalogPlugin(pluginRepo, "plugin-1", "google-calendar-meet", true)
 
-	svc := NewService(userRepo, pluginRepo, nil)
+	svc := NewService(userRepo, pluginRepo, nil, nil)
 	ctx := context.Background()
 
 	installed, err := svc.Install(ctx, "user-1", "google-calendar-meet")
@@ -347,7 +347,7 @@ func TestService_UninstallForbiddenForOtherUser(t *testing.T) {
 	pluginRepo := newFakePluginRepo()
 	seedCatalogPlugin(pluginRepo, "plugin-1", "google-calendar-meet", true)
 
-	svc := NewService(userRepo, pluginRepo, nil)
+	svc := NewService(userRepo, pluginRepo, nil, nil)
 	ctx := context.Background()
 
 	installed, err := svc.Install(ctx, "user-1", "google-calendar-meet")
@@ -362,5 +362,67 @@ func TestService_UninstallForbiddenForOtherUser(t *testing.T) {
 	appErr, ok := err.(*response.AppError)
 	if !ok || appErr.Status != 403 {
 		t.Fatalf("expected 403, got %v", err)
+	}
+}
+
+type trackingReminderCleaner struct {
+	calls []struct {
+		userID       string
+		userPluginID string
+	}
+}
+
+func (c *trackingReminderCleaner) CancelAllForUserPlugin(_ context.Context, userID, userPluginID string) error {
+	c.calls = append(c.calls, struct {
+		userID       string
+		userPluginID string
+	}{userID, userPluginID})
+	return nil
+}
+
+func TestService_UninstallCancelsRemindersForReminderPlugin(t *testing.T) {
+	userRepo := newFakeUserPluginRepo()
+	pluginRepo := newFakePluginRepo()
+	seedCatalogPlugin(pluginRepo, "plugin-reminder", "reminder", false)
+	reminderCleaner := &trackingReminderCleaner{}
+
+	svc := NewService(userRepo, pluginRepo, nil, reminderCleaner)
+	ctx := context.Background()
+
+	installed, err := svc.Install(ctx, "user-1", "reminder")
+	if err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	if err := svc.Uninstall(ctx, "user-1", installed.ID); err != nil {
+		t.Fatalf("Uninstall: %v", err)
+	}
+	if len(reminderCleaner.calls) != 1 {
+		t.Fatalf("expected one reminder cancel call, got %d", len(reminderCleaner.calls))
+	}
+	if reminderCleaner.calls[0].userID != "user-1" || reminderCleaner.calls[0].userPluginID != installed.ID {
+		t.Fatalf("unexpected cancel call: %+v", reminderCleaner.calls[0])
+	}
+}
+
+func TestService_UninstallDoesNotCancelRemindersForOtherPlugins(t *testing.T) {
+	userRepo := newFakeUserPluginRepo()
+	pluginRepo := newFakePluginRepo()
+	seedCatalogPlugin(pluginRepo, "plugin-1", "google-calendar-meet", true)
+	reminderCleaner := &trackingReminderCleaner{}
+
+	svc := NewService(userRepo, pluginRepo, nil, reminderCleaner)
+	ctx := context.Background()
+
+	installed, err := svc.Install(ctx, "user-1", "google-calendar-meet")
+	if err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	if err := svc.Uninstall(ctx, "user-1", installed.ID); err != nil {
+		t.Fatalf("Uninstall: %v", err)
+	}
+	if len(reminderCleaner.calls) != 0 {
+		t.Fatalf("expected no reminder cancel calls, got %d", len(reminderCleaner.calls))
 	}
 }

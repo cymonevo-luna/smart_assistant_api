@@ -19,10 +19,22 @@ type CredentialsCleaner interface {
 	DeleteForUserPlugin(ctx context.Context, userID, pluginID string) error
 }
 
+// ReminderCleaner cancels pending reminders when a reminder plugin is uninstalled.
+type ReminderCleaner interface {
+	CancelAllForUserPlugin(ctx context.Context, userID, userPluginID string) error
+}
+
 // noopCredentialsCleaner is the default until credentials persistence exists.
 type noopCredentialsCleaner struct{}
 
 func (noopCredentialsCleaner) DeleteForUserPlugin(context.Context, string, string) error {
+	return nil
+}
+
+// noopReminderCleaner is the default until reminder persistence is wired.
+type noopReminderCleaner struct{}
+
+func (noopReminderCleaner) CancelAllForUserPlugin(context.Context, string, string) error {
 	return nil
 }
 
@@ -31,14 +43,18 @@ type Service struct {
 	repo        Repository
 	pluginRepo  plugin.Repository
 	credentials CredentialsCleaner
+	reminders   ReminderCleaner
 }
 
 // NewService constructs a user plugin Service.
-func NewService(repo Repository, pluginRepo plugin.Repository, credentials CredentialsCleaner) *Service {
+func NewService(repo Repository, pluginRepo plugin.Repository, credentials CredentialsCleaner, reminders ReminderCleaner) *Service {
 	if credentials == nil {
 		credentials = noopCredentialsCleaner{}
 	}
-	return &Service{repo: repo, pluginRepo: pluginRepo, credentials: credentials}
+	if reminders == nil {
+		reminders = noopReminderCleaner{}
+	}
+	return &Service{repo: repo, pluginRepo: pluginRepo, credentials: credentials, reminders: reminders}
 }
 
 // ListInstalled returns the caller's installed plugins joined with catalog display fields.
@@ -141,6 +157,19 @@ func (s *Service) Uninstall(ctx context.Context, userID, installID string) error
 
 	if err := s.credentials.DeleteForUserPlugin(ctx, userID, install.PluginID); err != nil {
 		return response.NewInternal("failed to clean up plugin credentials").Wrap(err)
+	}
+
+	catalog, err := s.pluginRepo.FindByID(ctx, install.PluginID)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return response.NewNotFound("plugin not found")
+		}
+		return response.NewInternal("failed to load plugin").Wrap(err)
+	}
+	if catalog.Slug == "reminder" {
+		if err := s.reminders.CancelAllForUserPlugin(ctx, userID, install.ID); err != nil {
+			return response.NewInternal("failed to cancel reminders").Wrap(err)
+		}
 	}
 
 	if err := s.repo.Delete(ctx, installID); err != nil {
