@@ -68,7 +68,7 @@ func MapGoogleCalendarMeetPayload(args GoogleCalendarMeetArgs, timezone string) 
 		loc = parsed
 	}
 
-	start, err := parseStartTime(args.StartTime, loc)
+	start, err := ParseDateTime(args.StartTime, loc)
 	if err != nil {
 		return GoogleCalendarMeetPayload{}, err
 	}
@@ -119,24 +119,4 @@ func stringArg(args map[string]any, key string) string {
 	default:
 		return strings.TrimSpace(fmt.Sprint(v))
 	}
-}
-
-func parseStartTime(raw string, loc *time.Location) (time.Time, error) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return time.Time{}, fmt.Errorf("start_time is required")
-	}
-
-	layouts := []string{
-		time.RFC3339,
-		"2006-01-02T15:04:05",
-		"2006-01-02 15:04:05",
-		"2006-01-02 15:04",
-	}
-	for _, layout := range layouts {
-		if t, err := time.ParseInLocation(layout, raw, loc); err == nil {
-			return t, nil
-		}
-	}
-	return time.Time{}, fmt.Errorf("could not parse start_time %q", raw)
 }

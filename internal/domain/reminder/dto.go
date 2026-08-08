@@ -1,6 +1,15 @@
 package reminder
 
-// CreateInput is the payload for creating a reminder via the service layer.
+// ListFilter scopes List results by remind_at date in UTC.
+type ListFilter string
+
+const (
+	ListFilterToday    ListFilter = "today"
+	ListFilterTomorrow ListFilter = "tomorrow"
+	ListFilterAll      ListFilter = "all"
+)
+
+// CreateInput is the payload for creating a location reminder via the service layer.
 type CreateInput struct {
 	Title        string  `validate:"required"`
 	TriggerType  string  `validate:"required,oneof=time location"`
@@ -15,8 +24,12 @@ type CreateInput struct {
 // Response is the outward-facing reminder shape.
 type Response struct {
 	ID           string   `json:"id"`
-	Title        string   `json:"title"`
+	UserID       string   `json:"user_id,omitempty"`
+	UserPluginID *string  `json:"user_plugin_id,omitempty"`
 	TriggerType  string   `json:"trigger_type"`
+	Title        string   `json:"title,omitempty"`
+	Message      string   `json:"message,omitempty"`
+	RemindAt     *string  `json:"remind_at,omitempty"`
 	LocationMode *string  `json:"location_mode"`
 	PlaceQuery   *string  `json:"place_query"`
 	Latitude     *float64 `json:"latitude"`
@@ -24,6 +37,8 @@ type Response struct {
 	PlaceKeyword *string  `json:"place_keyword"`
 	RadiusMeters int      `json:"radius_meters"`
 	Status       string   `json:"status"`
+	NotifiedAt   *string  `json:"notified_at,omitempty"`
+	DeliveredAt  *string  `json:"delivered_at,omitempty"`
 	TriggeredAt  *string  `json:"triggered_at,omitempty"`
 	CreatedAt    string   `json:"created_at"`
 	UpdatedAt    string   `json:"updated_at"`
@@ -35,8 +50,11 @@ const timeLayout = "2006-01-02T15:04:05Z07:00"
 func ToResponse(r *Reminder) Response {
 	resp := Response{
 		ID:           r.ID,
-		Title:        r.Title,
+		UserID:       r.UserID,
+		UserPluginID: r.UserPluginID,
 		TriggerType:  r.TriggerType,
+		Title:        r.Title,
+		Message:      r.Message,
 		LocationMode: r.LocationMode,
 		PlaceQuery:   r.PlaceQuery,
 		Latitude:     r.Latitude,
@@ -46,6 +64,18 @@ func ToResponse(r *Reminder) Response {
 		Status:       r.Status,
 		CreatedAt:    r.CreatedAt.UTC().Format(timeLayout),
 		UpdatedAt:    r.UpdatedAt.UTC().Format(timeLayout),
+	}
+	if r.RemindAt != nil {
+		s := r.RemindAt.UTC().Format(timeLayout)
+		resp.RemindAt = &s
+	}
+	if r.NotifiedAt != nil {
+		s := r.NotifiedAt.UTC().Format(timeLayout)
+		resp.NotifiedAt = &s
+	}
+	if r.DeliveredAt != nil {
+		s := r.DeliveredAt.UTC().Format(timeLayout)
+		resp.DeliveredAt = &s
 	}
 	if r.TriggeredAt != nil {
 		s := r.TriggeredAt.UTC().Format(timeLayout)

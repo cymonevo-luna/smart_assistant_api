@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/cymonevo/go_template/internal/domain/assistant/builtin"
 	"github.com/cymonevo/go_template/internal/domain/plugin"
 )
 
@@ -77,6 +78,11 @@ func isEmptyValue(v any) bool {
 }
 
 func confirmationPrompt(pluginName string, args map[string]any) string {
+	if op := stringArgValue(args, "operation"); op != "" {
+		if prompt := confirmationPromptReminder(op, args); prompt != "" {
+			return prompt
+		}
+	}
 	email := stringArgValue(args, "attendee_email")
 	if email != "" {
 		name := stringArgValue(args, "attendee_name")
@@ -116,5 +122,75 @@ func stringArgValue(args map[string]any, key string) string {
 		return strings.TrimSpace(v)
 	default:
 		return strings.TrimSpace(fmt.Sprint(v))
+	}
+}
+
+func inferReminderOperation(text string, args map[string]any) string {
+	if op := stringArgValue(args, "operation"); op != "" {
+		return op
+	}
+	lower := strings.ToLower(text)
+	if strings.Contains(lower, "list") && strings.Contains(lower, "reminder") {
+		return "list"
+	}
+	if (strings.Contains(lower, "delete") || strings.Contains(lower, "remove")) && strings.Contains(lower, "reminder") {
+		return "delete"
+	}
+	return "create"
+}
+
+func inferReminderFilter(text string, args map[string]any) {
+	if stringArgValue(args, "filter") != "" {
+		return
+	}
+	lower := strings.ToLower(text)
+	switch {
+	case strings.Contains(lower, "tomorrow"):
+		args["filter"] = "tomorrow"
+	case strings.Contains(lower, "for today") || (strings.Contains(lower, "today") && !strings.Contains(lower, "all reminders")):
+		args["filter"] = "today"
+	case strings.Contains(lower, "all"):
+		args["filter"] = "all"
+	default:
+		args["filter"] = "today"
+	}
+}
+
+func firstMissingReminderArgument(operation string, args map[string]any) (string, string) {
+	switch operation {
+	case "create":
+		if stringArgValue(args, "message") == "" {
+			return "message", "What should I remind you about?"
+		}
+		if stringArgValue(args, "remind_at") == "" {
+			return "remind_at", "When should I remind you?"
+		}
+	case "delete":
+		if stringArgValue(args, "message") == "" {
+			return "message", "Which reminder should I delete?"
+		}
+	case "list":
+		if stringArgValue(args, "filter") == "" {
+			args["filter"] = "today"
+		}
+	}
+	return "", ""
+}
+
+func reminderNeedsConfirmation(operation string) bool {
+	return operation == "create" || operation == "delete"
+}
+
+func confirmationPromptReminder(operation string, args map[string]any) string {
+	switch operation {
+	case "create":
+		message := stringArgValue(args, "message")
+		when := builtin.FormatRemindAtForConfirmation(stringArgValue(args, "remind_at"))
+		return fmt.Sprintf("Should I set a reminder to %s at %s?", message, when)
+	case "delete":
+		message := stringArgValue(args, "message")
+		return fmt.Sprintf("Should I delete the reminder to %s?", message)
+	default:
+		return ""
 	}
 }
