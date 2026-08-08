@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cymonevo/go_template/internal/domain/assistant/builtin"
 	assistantsettings "github.com/cymonevo/go_template/internal/domain/assistant_settings"
 	"github.com/cymonevo/go_template/internal/domain/plugin"
 	userplugin "github.com/cymonevo/go_template/internal/domain/user_plugin"
@@ -215,7 +216,7 @@ func (s *Service) handlePendingAction(ctx context.Context, userID string, sessio
 		pending.MissingArgument = ""
 	}
 
-	return s.advancePlugin(ctx, userID, eligible, pending.Arguments)
+	return s.advancePlugin(ctx, userID, eligible, pending.Arguments, text)
 }
 
 func (s *Service) classifyAndExecute(ctx context.Context, userID, text string) (Reply, *PendingAction, SessionStatus, error) {
@@ -264,12 +265,59 @@ func (s *Service) classifyAndExecute(ctx context.Context, userID, text string) (
 	if args == nil {
 		args = map[string]any{}
 	}
-	return s.advancePlugin(ctx, userID, *matched, args)
+	return s.advancePlugin(ctx, userID, *matched, args, text)
 }
 
-func (s *Service) advancePlugin(ctx context.Context, userID string, eligible eligiblePlugin, args map[string]any) (Reply, *PendingAction, SessionStatus, error) {
+func (s *Service) advancePlugin(ctx context.Context, userID string, eligible eligiblePlugin, args map[string]any, text string) (Reply, *PendingAction, SessionStatus, error) {
 	if args == nil {
 		args = map[string]any{}
+	}
+
+	if isReminderPlugin(eligible.catalog) {
+		operation := inferReminderOperation(text, args)
+		args["operation"] = operation
+		if operation == "list" {
+			inferReminderFilter(text, args)
+		}
+
+		missingName, prompt := firstMissingReminderArgument(operation, args)
+		if missingName != "" {
+			pending := &PendingAction{
+				PluginSlug:      eligible.catalog.Slug,
+				PluginID:        eligible.catalog.ID,
+				InstallID:       eligible.install.ID,
+				Arguments:       args,
+				MissingArgument: missingName,
+			}
+			return Reply{
+				Type: ReplyTypeFollowUp,
+				Text: prompt,
+				Action: &ActionInfo{
+					PluginSlug: eligible.catalog.Slug,
+					Status:     ActionStatusPending,
+				},
+			}, pending, SessionStatusActive, nil
+		}
+
+		if reminderNeedsConfirmation(operation) {
+			pending := &PendingAction{
+				PluginSlug:           eligible.catalog.Slug,
+				PluginID:             eligible.catalog.ID,
+				InstallID:            eligible.install.ID,
+				Arguments:            args,
+				AwaitingConfirmation: true,
+			}
+			return Reply{
+				Type: ReplyTypeConfirmation,
+				Text: confirmationPromptReminder(operation, args),
+				Action: &ActionInfo{
+					PluginSlug: eligible.catalog.Slug,
+					Status:     ActionStatusPending,
+				},
+			}, pending, SessionStatusActive, nil
+		}
+
+		return s.executePlugin(ctx, userID, eligible, args)
 	}
 
 	missingName, prompt := firstMissingArgument(eligible.catalog.Manifest, args)
@@ -313,11 +361,14 @@ func (s *Service) advancePlugin(ctx context.Context, userID string, eligible eli
 }
 
 func (s *Service) executePlugin(ctx context.Context, userID string, eligible eligiblePlugin, args map[string]any) (Reply, *PendingAction, SessionStatus, error) {
-	_, err := s.executor.Execute(ctx, userID, eligible.catalog, args)
+	execArgs := cloneArgs(args)
+	execArgs["install_id"] = eligible.install.ID
+
+	result, err := s.executor.Execute(ctx, userID, eligible.catalog, execArgs)
 	if err != nil {
 		return Reply{
 			Type: ReplyTypeActionResult,
-			Text: "I tried to complete that action, but something went wrong. Please try again later.",
+			Text: builtin.ExecutorErrorText(err),
 			Action: &ActionInfo{
 				PluginSlug: eligible.catalog.Slug,
 				Status:     ActionStatusFailed,
@@ -325,14 +376,40 @@ func (s *Service) executePlugin(ctx context.Context, userID string, eligible eli
 		}, nil, SessionStatusActive, nil
 	}
 
+	replyText := fmt.Sprintf("Done. %s completed successfully.", eligible.catalog.Name)
+	if result != nil {
+		if custom, ok := result["reply_text"].(string); ok && strings.TrimSpace(custom) != "" {
+			replyText = custom
+		}
+	}
+
 	return Reply{
 		Type: ReplyTypeActionResult,
-		Text: fmt.Sprintf("Done. %s completed successfully.", eligible.catalog.Name),
+		Text: replyText,
 		Action: &ActionInfo{
 			PluginSlug: eligible.catalog.Slug,
 			Status:     ActionStatusSuccess,
 		},
 	}, nil, SessionStatusActive, nil
+}
+
+func cloneArgs(args map[string]any) map[string]any {
+	if args == nil {
+		return map[string]any{}
+	}
+	out := make(map[string]any, len(args))
+	for k, v := range args {
+		out[k] = v
+	}
+	return out
+}
+
+func isReminderPlugin(p *plugin.Plugin) bool {
+	if p.Slug == builtin.ReminderSlug {
+		return true
+	}
+	adapter, _ := p.Manifest.Executor.Config["builtin_adapter"].(string)
+	return adapter == builtin.AdapterReminder
 }
 
 func (s *Service) listEligiblePlugins(ctx context.Context, userID string) ([]eligiblePlugin, error) {

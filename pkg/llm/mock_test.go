@@ -38,3 +38,53 @@ func TestMockClassifierMatchesScheduleMeeting(t *testing.T) {
 		t.Fatalf("unexpected result: %+v", result)
 	}
 }
+
+func TestMockClassifierMatchesReminderIntents(t *testing.T) {
+	mock := NewMockClassifier()
+	plugins := []PluginCandidate{{
+		Slug:     "reminder",
+		Triggers: []string{"remind me", "list reminders", "delete reminder"},
+	}}
+
+	createResult, err := mock.Classify(context.Background(), ClassifyRequest{
+		Text:    "remind me to call mom at 2 pm today",
+		Plugins: plugins,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !createResult.Matched || createResult.PluginSlug != "reminder" {
+		t.Fatalf("create match: %+v", createResult)
+	}
+	if createResult.Arguments["operation"] != "create" {
+		t.Fatalf("operation = %v", createResult.Arguments["operation"])
+	}
+	if createResult.Arguments["message"] != "call mom" {
+		t.Fatalf("message = %v", createResult.Arguments["message"])
+	}
+	if createResult.Arguments["remind_at"] == "" {
+		t.Fatal("expected remind_at")
+	}
+
+	listResult, err := mock.Classify(context.Background(), ClassifyRequest{
+		Text:    "list all reminders for today",
+		Plugins: plugins,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if listResult.Arguments["operation"] != "list" || listResult.Arguments["filter"] != "today" {
+		t.Fatalf("list args: %+v", listResult.Arguments)
+	}
+
+	deleteResult, err := mock.Classify(context.Background(), ClassifyRequest{
+		Text:    "delete my reminder for call mom",
+		Plugins: plugins,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if deleteResult.Arguments["operation"] != "delete" || deleteResult.Arguments["message"] != "call mom" {
+		t.Fatalf("delete args: %+v", deleteResult.Arguments)
+	}
+}

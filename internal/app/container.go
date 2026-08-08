@@ -146,6 +146,7 @@ func BuildContainer(ctx context.Context, cfg *config.Config, log logger.Logger) 
 
 	classifier := llm.NewClassifier(c.Cfg.LLM.Provider, c.Cfg.LLM.APIKey, c.Cfg.LLM.Model)
 	stubExecutor := assistant.NewStubExecutor(log)
+	builtinExecutor := assistant.NewBuiltinExecutor(c.ReminderService, log)
 	var composioExec *assistant.ComposioExecutor
 	if c.Cfg.Composio.APIKey != "" {
 		composioClient := composio.New(composio.Config{
@@ -155,7 +156,7 @@ func BuildContainer(ctx context.Context, cfg *config.Config, log logger.Logger) 
 		composioExec = assistant.NewComposioExecutor(composioClient, log)
 		c.Log.Info("composio client ready")
 	}
-	executor := assistant.NewRoutingExecutor(composioExec, stubExecutor)
+	executor := assistant.NewRoutingExecutor(composioExec, builtinExecutor, stubExecutor)
 
 	assistantSessionRepo := assistant.NewSessionRepository(assistantSessionStore)
 	assistantMessageRepo := assistant.NewMessageRepository(assistantMessageStore)
