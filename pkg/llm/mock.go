@@ -2,8 +2,10 @@ package llm
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
+	"time"
 )
 
 // MockClassifier is a deterministic classifier for tests and CI.
@@ -43,6 +45,11 @@ func (m *MockClassifier) Classify(_ context.Context, req ClassifyRequest) (*Clas
 func defaultMockClassify(req ClassifyRequest) *ClassifyResult {
 	lower := strings.ToLower(req.Text)
 	for _, p := range req.Plugins {
+		if result := matchReminderIntent(lower, p); result != nil {
+			return result
+		}
+	}
+	for _, p := range req.Plugins {
 		for _, trigger := range p.Triggers {
 			if strings.Contains(lower, strings.ToLower(trigger)) {
 				args := map[string]any{}
@@ -68,4 +75,151 @@ func defaultMockClassify(req ClassifyRequest) *ClassifyResult {
 		}
 	}
 	return &ClassifyResult{Matched: false}
+}
+
+func matchReminderIntent(lower string, p PluginCandidate) *ClassifyResult {
+	isReminderPlugin := p.Slug == "reminder" || strings.HasPrefix(p.Slug, "reminder-")
+	for _, trigger := range p.Triggers {
+		if strings.Contains(lower, strings.ToLower(trigger)) {
+			isReminderPlugin = true
+			break
+		}
+	}
+	if !isReminderPlugin {
+		return nil
+	}
+
+	if strings.Contains(lower, "list") && strings.Contains(lower, "reminder") {
+		args := map[string]any{"operation": "list"}
+		switch {
+		case strings.Contains(lower, "tomorrow"):
+			args["filter"] = "tomorrow"
+		case strings.Contains(lower, "for today") || (strings.Contains(lower, "today") && !strings.Contains(lower, "all reminders")):
+			args["filter"] = "today"
+		case strings.Contains(lower, "all"):
+			args["filter"] = "all"
+		default:
+			args["filter"] = "today"
+		}
+		return &ClassifyResult{Matched: true, PluginSlug: p.Slug, Arguments: args}
+	}
+
+	if (strings.Contains(lower, "delete") || strings.Contains(lower, "remove")) && strings.Contains(lower, "reminder") {
+		return &ClassifyResult{
+			Matched:    true,
+			PluginSlug: p.Slug,
+			Arguments: map[string]any{
+				"operation": "delete",
+				"message":   extractReminderDeleteMessage(lower),
+			},
+		}
+	}
+
+	if strings.Contains(lower, "remind") {
+		args := map[string]any{
+			"operation": "create",
+			"message":   extractReminderCreateMessage(lower),
+		}
+		if strings.Contains(lower, "past reminder test") {
+			args["remind_at"] = time.Now().UTC().Add(-time.Hour).Format(time.RFC3339)
+		} else {
+			args["remind_at"] = parseReminderTimeFromText(lower)
+		}
+		return &ClassifyResult{Matched: true, PluginSlug: p.Slug, Arguments: args}
+	}
+
+	return nil
+}
+
+func extractReminderCreateMessage(lower string) string {
+	for _, prefix := range []string{"remind me to ", "remind me "} {
+		if idx := strings.Index(lower, prefix); idx >= 0 {
+			rest := strings.TrimSpace(lower[idx+len(prefix):])
+			if atIdx := strings.Index(rest, " at "); atIdx >= 0 {
+				rest = strings.TrimSpace(rest[:atIdx])
+			}
+			return rest
+		}
+	}
+	return ""
+}
+
+func extractReminderDeleteMessage(lower string) string {
+	for _, prefix := range []string{
+		"delete my reminder for ",
+		"delete reminder for ",
+		"remove my reminder for ",
+		"remove reminder for ",
+	} {
+		if idx := strings.Index(lower, prefix); idx >= 0 {
+			return strings.TrimSpace(lower[idx+len(prefix):])
+		}
+	}
+	return ""
+}
+
+func parseReminderTimeFromText(lower string) string {
+	hour := 14
+	minute := 0
+
+	if idx := strings.Index(lower, " at "); idx >= 0 {
+		segment := lower[idx+4:]
+		for _, suffix := range []string{" today", " tomorrow"} {
+			if cut := strings.Index(segment, suffix); cut >= 0 {
+				segment = segment[:cut]
+			}
+		}
+		segment = strings.TrimSpace(segment)
+		if parsedHour, parsedMinute, ok := parseClock(segment); ok {
+			hour, minute = parsedHour, parsedMinute
+		}
+	}
+
+	now := time.Now().UTC()
+	target := time.Date(now.Year(), now.Month(), now.Day(), hour, minute, 0, 0, time.UTC)
+	if strings.Contains(lower, "tomorrow") {
+		target = target.Add(24 * time.Hour)
+	} else if !target.After(now) {
+		target = target.Add(24 * time.Hour)
+	}
+	return target.Format(time.RFC3339)
+}
+
+func parseClock(segment string) (hour, minute int, ok bool) {
+	segment = strings.TrimSpace(strings.ToLower(segment))
+	segment = strings.ReplaceAll(segment, ".", "")
+	isPM := strings.Contains(segment, "pm")
+	isAM := strings.Contains(segment, "am")
+	segment = strings.ReplaceAll(segment, "pm", "")
+	segment = strings.ReplaceAll(segment, "am", "")
+	segment = strings.TrimSpace(segment)
+	segment = strings.ReplaceAll(segment, " ", "")
+
+	if strings.Contains(segment, ":") {
+		parts := strings.SplitN(segment, ":", 2)
+		if len(parts) != 2 {
+			return 0, 0, false
+		}
+		var h, m int
+		if _, err := fmt.Sscanf(parts[0], "%d", &h); err != nil {
+			return 0, 0, false
+		}
+		if _, err := fmt.Sscanf(parts[1], "%d", &m); err != nil {
+			return 0, 0, false
+		}
+		hour = h
+		minute = m
+	} else {
+		if _, err := fmt.Sscanf(segment, "%d", &hour); err != nil {
+			return 0, 0, false
+		}
+	}
+
+	if isPM && hour < 12 {
+		hour += 12
+	}
+	if isAM && hour == 12 {
+		hour = 0
+	}
+	return hour, minute, true
 }

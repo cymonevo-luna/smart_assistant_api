@@ -17,9 +17,10 @@ import (
 // attach a bearer token, marshal JSON bodies, and decode the standard response
 // envelope so tests stay focused on the journey rather than plumbing.
 type client struct {
-	t     *testing.T
-	token string
-	http  *http.Client
+	t      *testing.T
+	token  string
+	userID string
+	http   *http.Client
 }
 
 // newClient returns an unauthenticated client.
