@@ -187,6 +187,7 @@ func BuildContainer(ctx context.Context, cfg *config.Config, log logger.Logger) 
 		pluginRepo,
 		classifier,
 		executor,
+		c.CalendarAvailability,
 		log,
 	)
 

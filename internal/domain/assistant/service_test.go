@@ -249,7 +249,7 @@ func TestProcessMessageStripsWakeWordBeforeClassification(t *testing.T) {
 		SetupStatus: userplugin.SetupStatusCompleted,
 	}}}
 
-	svc := NewService(sessions, messages, settingsSvc, userPlugins, fakePluginRepo{plugins: []plugin.Plugin{catalog}}, recorder, NewStubExecutor(log), log)
+	svc := NewService(sessions, messages, settingsSvc, userPlugins, fakePluginRepo{plugins: []plugin.Plugin{catalog}}, recorder, NewStubExecutor(log), nil, log)
 
 	session := &Session{
 		ID:        "sess-1",
@@ -289,7 +289,7 @@ func TestProcessMessageNoPluginsAcknowledgment(t *testing.T) {
 	settingsSvc := assistantsettings.NewService(settingsRepo)
 	log, _ := logger.New("debug", false)
 
-	svc := NewService(sessions, messages, settingsSvc, fakeUserPluginRepo{}, fakePluginRepo{}, llm.NewMockClassifier(), NewStubExecutor(log), log)
+	svc := NewService(sessions, messages, settingsSvc, fakeUserPluginRepo{}, fakePluginRepo{}, llm.NewMockClassifier(), NewStubExecutor(log), nil, log)
 
 	session := &Session{
 		ID:        "sess-1",
@@ -347,7 +347,7 @@ func TestProcessMessageSetupIncompletePlugin(t *testing.T) {
 		SetupStatus: userplugin.SetupStatusNotStarted,
 	}}}
 
-	svc := NewService(sessions, messages, settingsSvc, userPlugins, fakePluginRepo{plugins: []plugin.Plugin{catalog}}, llm.NewMockClassifier(), NewStubExecutor(log), log)
+	svc := NewService(sessions, messages, settingsSvc, userPlugins, fakePluginRepo{plugins: []plugin.Plugin{catalog}}, llm.NewMockClassifier(), NewStubExecutor(log), nil, log)
 
 	session := &Session{
 		ID:        "sess-1",
@@ -416,7 +416,7 @@ func TestProcessMessageDisabledPlugin(t *testing.T) {
 		SetupStatus: userplugin.SetupStatusCompleted,
 	}}}
 
-	svc := NewService(sessions, messages, settingsSvc, userPlugins, fakePluginRepo{plugins: []plugin.Plugin{catalog}}, llm.NewMockClassifier(), NewStubExecutor(log), log)
+	svc := NewService(sessions, messages, settingsSvc, userPlugins, fakePluginRepo{plugins: []plugin.Plugin{catalog}}, llm.NewMockClassifier(), NewStubExecutor(log), nil, log)
 
 	session := &Session{
 		ID:        "sess-1",
@@ -473,7 +473,7 @@ func TestProcessMessageNoMatchWithEligiblePlugins(t *testing.T) {
 		SetupStatus: userplugin.SetupStatusCompleted,
 	}}}
 
-	svc := NewService(sessions, messages, settingsSvc, userPlugins, fakePluginRepo{plugins: []plugin.Plugin{catalog}}, llm.NewMockClassifier(), NewStubExecutor(log), log)
+	svc := NewService(sessions, messages, settingsSvc, userPlugins, fakePluginRepo{plugins: []plugin.Plugin{catalog}}, llm.NewMockClassifier(), NewStubExecutor(log), nil, log)
 
 	session := &Session{
 		ID:        "sess-1",
@@ -530,7 +530,7 @@ func TestProcessMessageClassifierError(t *testing.T) {
 		SetupStatus: userplugin.SetupStatusCompleted,
 	}}}
 
-	svc := NewService(sessions, messages, settingsSvc, userPlugins, fakePluginRepo{plugins: []plugin.Plugin{catalog}}, failingClassifier{}, NewStubExecutor(log), log)
+	svc := NewService(sessions, messages, settingsSvc, userPlugins, fakePluginRepo{plugins: []plugin.Plugin{catalog}}, failingClassifier{}, NewStubExecutor(log), nil, log)
 
 	session := &Session{
 		ID:        "sess-1",
