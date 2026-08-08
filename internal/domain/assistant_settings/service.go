@@ -33,10 +33,11 @@ func (s *Service) GetOrCreate(ctx context.Context, userID string) (*Settings, er
 
 	now := time.Now().UTC()
 	defaults := &Settings{
-		UserID:                 userID,
-		WakeWord:               DefaultWakeWord,
-		ActiveListeningEnabled: false,
-		UpdatedAt:              now,
+		UserID:                          userID,
+		WakeWord:                        DefaultWakeWord,
+		ActiveListeningEnabled:          false,
+		LocationReminderThresholdMeters: DefaultLocationReminderThresholdMeters,
+		UpdatedAt:                       now,
 	}
 	if err := s.repo.Create(ctx, defaults); err != nil {
 		// Another request may have created the row concurrently.
@@ -68,6 +69,13 @@ func (s *Service) Update(ctx context.Context, userID string, in UpdateInput) (*S
 		return nil, err
 	}
 
+	if in.LocationReminderThresholdMeters != nil {
+		if err := validateLocationReminderThreshold(*in.LocationReminderThresholdMeters); err != nil {
+			return nil, err
+		}
+		settings.LocationReminderThresholdMeters = *in.LocationReminderThresholdMeters
+	}
+
 	settings.WakeWord = wakeWord
 	settings.ActiveListeningEnabled = in.ActiveListeningEnabled
 	settings.UpdatedAt = time.Now().UTC()
@@ -76,4 +84,13 @@ func (s *Service) Update(ctx context.Context, userID string, in UpdateInput) (*S
 		return nil, response.NewInternal("failed to update assistant settings").Wrap(err)
 	}
 	return settings, nil
+}
+
+func validateLocationReminderThreshold(meters int) error {
+	if meters < 10 || meters > 5000 {
+		return response.NewValidation(map[string]string{
+			"location_reminder_threshold_meters": "must be between 10 and 5000 meters",
+		})
+	}
+	return nil
 }

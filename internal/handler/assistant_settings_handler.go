@@ -51,6 +51,7 @@ func (h *AssistantSettingsHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 // Update godoc
 // @Summary      Update assistant settings
+// @Description  Updates wake word, active listening, and location reminder distance threshold (10–5000 meters).
 // @Tags         assistant
 // @Accept       json
 // @Produce      json

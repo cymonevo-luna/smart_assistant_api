@@ -317,6 +317,190 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/assistant/sessions": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "assistant"
+                ],
+                "summary": "Create assistant session",
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Envelope"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/assistant.CreateSessionResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/response.Envelope"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/assistant/sessions/{sessionId}/messages": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "assistant"
+                ],
+                "summary": "List session messages",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sessionId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Envelope"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/assistant.MessageHistoryResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/response.Envelope"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/response.Envelope"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/response.Envelope"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "assistant"
+                ],
+                "summary": "Send a message to the assistant",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sessionId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Message payload",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/assistant.ProcessMessageInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Envelope"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/assistant.ProcessMessageResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/response.Envelope"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/response.Envelope"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/response.Envelope"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/response.Envelope"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/assistant/settings": {
             "get": {
                 "security": [
@@ -364,6 +548,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
+                "description": "Updates wake word, active listening, and location reminder distance threshold (10–5000 meters).",
                 "consumes": [
                     "application/json"
                 ],
@@ -616,6 +801,35 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/plugins/oauth/google/callback": {
+            "get": {
+                "tags": [
+                    "plugins"
+                ],
+                "summary": "Google OAuth callback",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Authorization code",
+                        "name": "code",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "OAuth state",
+                        "name": "state",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "302": {
+                        "description": "Found"
+                    }
+                }
+            }
+        },
         "/api/v1/plugins/{slug}": {
             "get": {
                 "security": [
@@ -652,6 +866,358 @@ const docTemplate = `{
                                     "properties": {
                                         "data": {
                                             "$ref": "#/definitions/plugin.DetailResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/response.Envelope"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/response.Envelope"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/users/me/plugins": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "user-plugins"
+                ],
+                "summary": "List installed plugins",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Envelope"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/definitions/userplugin.InstalledResponse"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/response.Envelope"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "user-plugins"
+                ],
+                "summary": "Install a plugin",
+                "parameters": [
+                    {
+                        "description": "Install payload",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/userplugin.InstallInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Envelope"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/userplugin.InstalledResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/response.Envelope"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/response.Envelope"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/response.Envelope"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/users/me/plugins/{pluginId}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "user-plugins"
+                ],
+                "summary": "Uninstall a plugin",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Installed plugin ID",
+                        "name": "pluginId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/response.Envelope"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/response.Envelope"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/response.Envelope"
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "user-plugins"
+                ],
+                "summary": "Enable or disable an installed plugin",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Installed plugin ID",
+                        "name": "pluginId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Enable payload",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/userplugin.SetEnabledInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Envelope"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/userplugin.InstalledResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/response.Envelope"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/response.Envelope"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/response.Envelope"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/users/me/plugins/{pluginId}/setup": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "user-plugins"
+                ],
+                "summary": "Start plugin OAuth setup",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Installed plugin ID",
+                        "name": "pluginId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Envelope"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/oauthgoogle.SetupInitResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Envelope"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/response.Envelope"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/response.Envelope"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/users/me/plugins/{pluginId}/setup/status": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "user-plugins"
+                ],
+                "summary": "Get plugin setup status",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Installed plugin ID",
+                        "name": "pluginId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Envelope"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/oauthgoogle.SetupStatusResponse"
                                         }
                                     }
                                 }
@@ -787,11 +1353,172 @@ const docTemplate = `{
         }
     },
     "definitions": {
+        "assistant.ActionInfo": {
+            "type": "object",
+            "properties": {
+                "plugin_slug": {
+                    "type": "string"
+                },
+                "status": {
+                    "$ref": "#/definitions/assistant.ActionStatus"
+                }
+            }
+        },
+        "assistant.ActionStatus": {
+            "type": "string",
+            "enum": [
+                "pending",
+                "success",
+                "failed"
+            ],
+            "x-enum-varnames": [
+                "ActionStatusPending",
+                "ActionStatusSuccess",
+                "ActionStatusFailed"
+            ]
+        },
+        "assistant.CreateSessionResponse": {
+            "type": "object",
+            "properties": {
+                "session_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "assistant.MessageHistoryItem": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "role": {
+                    "$ref": "#/definitions/assistant.MessageRole"
+                }
+            }
+        },
+        "assistant.MessageHistoryResponse": {
+            "type": "object",
+            "properties": {
+                "messages": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/assistant.MessageHistoryItem"
+                    }
+                }
+            }
+        },
+        "assistant.MessageRole": {
+            "type": "string",
+            "enum": [
+                "user",
+                "assistant",
+                "system"
+            ],
+            "x-enum-varnames": [
+                "MessageRoleUser",
+                "MessageRoleAssistant",
+                "MessageRoleSystem"
+            ]
+        },
+        "assistant.MessageSource": {
+            "type": "string",
+            "enum": [
+                "wake_word",
+                "button"
+            ],
+            "x-enum-varnames": [
+                "MessageSourceWakeWord",
+                "MessageSourceButton"
+            ]
+        },
+        "assistant.ProcessMessageInput": {
+            "type": "object",
+            "required": [
+                "source",
+                "text"
+            ],
+            "properties": {
+                "source": {
+                    "enum": [
+                        "wake_word",
+                        "button"
+                    ],
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/assistant.MessageSource"
+                        }
+                    ]
+                },
+                "text": {
+                    "type": "string"
+                }
+            }
+        },
+        "assistant.ProcessMessageResponse": {
+            "type": "object",
+            "properties": {
+                "reply": {
+                    "$ref": "#/definitions/assistant.Reply"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "session_status": {
+                    "$ref": "#/definitions/assistant.SessionStatus"
+                }
+            }
+        },
+        "assistant.Reply": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "$ref": "#/definitions/assistant.ActionInfo"
+                },
+                "text": {
+                    "type": "string"
+                },
+                "type": {
+                    "$ref": "#/definitions/assistant.ReplyType"
+                }
+            }
+        },
+        "assistant.ReplyType": {
+            "type": "string",
+            "enum": [
+                "text",
+                "follow_up",
+                "confirmation",
+                "action_result"
+            ],
+            "x-enum-varnames": [
+                "ReplyTypeText",
+                "ReplyTypeFollowUp",
+                "ReplyTypeConfirmation",
+                "ReplyTypeActionResult"
+            ]
+        },
+        "assistant.SessionStatus": {
+            "type": "string",
+            "enum": [
+                "active",
+                "completed"
+            ],
+            "x-enum-varnames": [
+                "SessionStatusActive",
+                "SessionStatusCompleted"
+            ]
+        },
         "assistantsettings.Response": {
             "type": "object",
             "properties": {
                 "active_listening_enabled": {
                     "type": "boolean"
+                },
+                "location_reminder_threshold_meters": {
+                    "type": "integer"
                 },
                 "updated_at": {
                     "type": "string"
@@ -806,6 +1533,9 @@ const docTemplate = `{
             "properties": {
                 "active_listening_enabled": {
                     "type": "boolean"
+                },
+                "location_reminder_threshold_meters": {
+                    "type": "integer"
                 },
                 "wake_word": {
                     "type": "string",
@@ -823,6 +1553,28 @@ const docTemplate = `{
                 "RoleUser",
                 "RoleAdmin"
             ]
+        },
+        "oauthgoogle.SetupInitResponse": {
+            "type": "object",
+            "properties": {
+                "authorization_url": {
+                    "type": "string"
+                },
+                "state": {
+                    "type": "string"
+                }
+            }
+        },
+        "oauthgoogle.SetupStatusResponse": {
+            "type": "object",
+            "properties": {
+                "setup_error": {
+                    "type": "string"
+                },
+                "setup_status": {
+                    "$ref": "#/definitions/userplugin.SetupStatus"
+                }
+            }
         },
         "plugin.CatalogSummary": {
             "type": "object",
@@ -1164,6 +1916,77 @@ const docTemplate = `{
                     "minLength": 2
                 }
             }
+        },
+        "userplugin.InstallInput": {
+            "type": "object",
+            "required": [
+                "plugin_slug"
+            ],
+            "properties": {
+                "plugin_slug": {
+                    "type": "string"
+                }
+            }
+        },
+        "userplugin.InstalledResponse": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "plugin": {
+                    "$ref": "#/definitions/userplugin.PluginSummary"
+                },
+                "setup_status": {
+                    "$ref": "#/definitions/userplugin.SetupStatus"
+                }
+            }
+        },
+        "userplugin.PluginSummary": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "required_setup": {
+                    "type": "boolean"
+                },
+                "setup_type": {
+                    "$ref": "#/definitions/plugin.SetupType"
+                },
+                "slug": {
+                    "type": "string"
+                }
+            }
+        },
+        "userplugin.SetEnabledInput": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "userplugin.SetupStatus": {
+            "type": "string",
+            "enum": [
+                "not_started",
+                "in_progress",
+                "completed",
+                "failed"
+            ],
+            "x-enum-varnames": [
+                "SetupStatusNotStarted",
+                "SetupStatusInProgress",
+                "SetupStatusCompleted",
+                "SetupStatusFailed"
+            ]
         }
     },
     "securityDefinitions": {

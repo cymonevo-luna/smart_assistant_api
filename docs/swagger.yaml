@@ -1,9 +1,119 @@
 basePath: /
 definitions:
+  assistant.ActionInfo:
+    properties:
+      plugin_slug:
+        type: string
+      status:
+        $ref: '#/definitions/assistant.ActionStatus'
+    type: object
+  assistant.ActionStatus:
+    enum:
+    - pending
+    - success
+    - failed
+    type: string
+    x-enum-varnames:
+    - ActionStatusPending
+    - ActionStatusSuccess
+    - ActionStatusFailed
+  assistant.CreateSessionResponse:
+    properties:
+      session_id:
+        type: string
+    type: object
+  assistant.MessageHistoryItem:
+    properties:
+      content:
+        type: string
+      created_at:
+        type: string
+      role:
+        $ref: '#/definitions/assistant.MessageRole'
+    type: object
+  assistant.MessageHistoryResponse:
+    properties:
+      messages:
+        items:
+          $ref: '#/definitions/assistant.MessageHistoryItem'
+        type: array
+    type: object
+  assistant.MessageRole:
+    enum:
+    - user
+    - assistant
+    - system
+    type: string
+    x-enum-varnames:
+    - MessageRoleUser
+    - MessageRoleAssistant
+    - MessageRoleSystem
+  assistant.MessageSource:
+    enum:
+    - wake_word
+    - button
+    type: string
+    x-enum-varnames:
+    - MessageSourceWakeWord
+    - MessageSourceButton
+  assistant.ProcessMessageInput:
+    properties:
+      source:
+        allOf:
+        - $ref: '#/definitions/assistant.MessageSource'
+        enum:
+        - wake_word
+        - button
+      text:
+        type: string
+    required:
+    - source
+    - text
+    type: object
+  assistant.ProcessMessageResponse:
+    properties:
+      reply:
+        $ref: '#/definitions/assistant.Reply'
+      session_id:
+        type: string
+      session_status:
+        $ref: '#/definitions/assistant.SessionStatus'
+    type: object
+  assistant.Reply:
+    properties:
+      action:
+        $ref: '#/definitions/assistant.ActionInfo'
+      text:
+        type: string
+      type:
+        $ref: '#/definitions/assistant.ReplyType'
+    type: object
+  assistant.ReplyType:
+    enum:
+    - text
+    - follow_up
+    - confirmation
+    - action_result
+    type: string
+    x-enum-varnames:
+    - ReplyTypeText
+    - ReplyTypeFollowUp
+    - ReplyTypeConfirmation
+    - ReplyTypeActionResult
+  assistant.SessionStatus:
+    enum:
+    - active
+    - completed
+    type: string
+    x-enum-varnames:
+    - SessionStatusActive
+    - SessionStatusCompleted
   assistantsettings.Response:
     properties:
       active_listening_enabled:
         type: boolean
+      location_reminder_threshold_meters:
+        type: integer
       updated_at:
         type: string
       wake_word:
@@ -13,6 +123,8 @@ definitions:
     properties:
       active_listening_enabled:
         type: boolean
+      location_reminder_threshold_meters:
+        type: integer
       wake_word:
         maxLength: 32
         type: string
@@ -25,6 +137,20 @@ definitions:
     x-enum-varnames:
     - RoleUser
     - RoleAdmin
+  oauthgoogle.SetupInitResponse:
+    properties:
+      authorization_url:
+        type: string
+      state:
+        type: string
+    type: object
+  oauthgoogle.SetupStatusResponse:
+    properties:
+      setup_error:
+        type: string
+      setup_status:
+        $ref: '#/definitions/userplugin.SetupStatus'
+    type: object
   plugin.CatalogSummary:
     properties:
       description:
@@ -260,6 +386,54 @@ definitions:
     required:
     - name
     type: object
+  userplugin.InstallInput:
+    properties:
+      plugin_slug:
+        type: string
+    required:
+    - plugin_slug
+    type: object
+  userplugin.InstalledResponse:
+    properties:
+      enabled:
+        type: boolean
+      id:
+        type: string
+      plugin:
+        $ref: '#/definitions/userplugin.PluginSummary'
+      setup_status:
+        $ref: '#/definitions/userplugin.SetupStatus'
+    type: object
+  userplugin.PluginSummary:
+    properties:
+      id:
+        type: string
+      name:
+        type: string
+      required_setup:
+        type: boolean
+      setup_type:
+        $ref: '#/definitions/plugin.SetupType'
+      slug:
+        type: string
+    type: object
+  userplugin.SetEnabledInput:
+    properties:
+      enabled:
+        type: boolean
+    type: object
+  userplugin.SetupStatus:
+    enum:
+    - not_started
+    - in_progress
+    - completed
+    - failed
+    type: string
+    x-enum-varnames:
+    - SetupStatusNotStarted
+    - SetupStatusInProgress
+    - SetupStatusCompleted
+    - SetupStatusFailed
 info:
   contact: {}
   description: A scalable, database-agnostic Go backend template.
@@ -445,6 +619,114 @@ paths:
       summary: Get any user by ID (admin only)
       tags:
       - admin
+  /api/v1/assistant/sessions:
+    post:
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/assistant.CreateSessionResponse'
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+      - BearerAuth: []
+      summary: Create assistant session
+      tags:
+      - assistant
+  /api/v1/assistant/sessions/{sessionId}/messages:
+    get:
+      parameters:
+      - description: Session ID
+        in: path
+        name: sessionId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/assistant.MessageHistoryResponse'
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+      - BearerAuth: []
+      summary: List session messages
+      tags:
+      - assistant
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Session ID
+        in: path
+        name: sessionId
+        required: true
+        type: string
+      - description: Message payload
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/assistant.ProcessMessageInput'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/assistant.ProcessMessageResponse'
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+      - BearerAuth: []
+      summary: Send a message to the assistant
+      tags:
+      - assistant
   /api/v1/assistant/settings:
     get:
       produces:
@@ -471,6 +753,8 @@ paths:
     put:
       consumes:
       - application/json
+      description: Updates wake word, active listening, and location reminder distance
+        threshold (10–5000 meters).
       parameters:
       - description: Settings payload
         in: body
@@ -656,6 +940,25 @@ paths:
       summary: Get a plugin by slug
       tags:
       - plugins
+  /api/v1/plugins/oauth/google/callback:
+    get:
+      parameters:
+      - description: Authorization code
+        in: query
+        name: code
+        required: true
+        type: string
+      - description: OAuth state
+        in: query
+        name: state
+        required: true
+        type: string
+      responses:
+        "302":
+          description: Found
+      summary: Google OAuth callback
+      tags:
+      - plugins
   /api/v1/users/{id}:
     get:
       parameters:
@@ -721,6 +1024,214 @@ paths:
       summary: Update a user
       tags:
       - users
+  /api/v1/users/me/plugins:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/userplugin.InstalledResponse'
+                  type: array
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+      - BearerAuth: []
+      summary: List installed plugins
+      tags:
+      - user-plugins
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Install payload
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/userplugin.InstallInput'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/userplugin.InstalledResponse'
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+      - BearerAuth: []
+      summary: Install a plugin
+      tags:
+      - user-plugins
+  /api/v1/users/me/plugins/{pluginId}:
+    delete:
+      parameters:
+      - description: Installed plugin ID
+        in: path
+        name: pluginId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+      - BearerAuth: []
+      summary: Uninstall a plugin
+      tags:
+      - user-plugins
+    patch:
+      consumes:
+      - application/json
+      parameters:
+      - description: Installed plugin ID
+        in: path
+        name: pluginId
+        required: true
+        type: string
+      - description: Enable payload
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/userplugin.SetEnabledInput'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/userplugin.InstalledResponse'
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+      - BearerAuth: []
+      summary: Enable or disable an installed plugin
+      tags:
+      - user-plugins
+  /api/v1/users/me/plugins/{pluginId}/setup:
+    post:
+      parameters:
+      - description: Installed plugin ID
+        in: path
+        name: pluginId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/oauthgoogle.SetupInitResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+      - BearerAuth: []
+      summary: Start plugin OAuth setup
+      tags:
+      - user-plugins
+  /api/v1/users/me/plugins/{pluginId}/setup/status:
+    get:
+      parameters:
+      - description: Installed plugin ID
+        in: path
+        name: pluginId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/oauthgoogle.SetupStatusResponse'
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+      - BearerAuth: []
+      summary: Get plugin setup status
+      tags:
+      - user-plugins
 securityDefinitions:
   BearerAuth:
     in: header
