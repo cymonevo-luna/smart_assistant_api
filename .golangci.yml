@@ -1,0 +1,36 @@
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - gocritic
+    - gosec
+    - revive
+    - misspell
+    - bodyclose
+    - unconvert
+    - prealloc
+
+issues:
+  exclude-rules:
+    # Generated swagger docs are not hand-maintained.
+    - path: docs/
+      linters:
+        - all
+    # Tests may use weak randomness and skip some error checks.
+    - path: _test\.go
+      linters:
+        - gosec
+        - errcheck
+
+linters-settings:
+  revive:
+    rules:
+      - name: exported
+        disabled: false

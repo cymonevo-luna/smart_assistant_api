@@ -1,0 +1,19 @@
+[
+  {
+    "create": "users"
+  },
+  {
+    "createIndexes": "users",
+    "indexes": [
+      {
+        "key": { "email": 1 },
+        "name": "uniq_email",
+        "unique": true
+      },
+      {
+        "key": { "created_at": -1 },
+        "name": "idx_created_at"
+      }
+    ]
+  }
+]

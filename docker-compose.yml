@@ -1,0 +1,74 @@
+services:
+  api:
+    build: .
+    ports:
+      - "8080:8080"
+    # Inject every credential/setting from .env into the container at startup.
+    # Marked optional so the stack still boots from the defaults below when no
+    # .env is present (e.g. a fresh clone). Real env_file values are overridden
+    # by the explicit `environment` entries that target the compose network.
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DB_DRIVER: postgres
+      DB_URI: postgres://postgres:postgres@postgres:5432/go_template?sslmode=disable
+      CACHE_DRIVER: redis
+      QUEUE_DRIVER: redis
+      REDIS_ADDR: redis:6379
+      RATE_LIMIT_ENABLED: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: go_template
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./migrations/000001_create_users.up.sql:/docker-entrypoint-initdb.d/000001_create_users.up.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  # Uncomment to run against MongoDB instead. Also set DB_DRIVER=mongo and
+  # DB_URI=mongodb://mongo:27017/?replicaSet=rs0 on the api service.
+  # Mongo is run as a single-node replica set because the store uses
+  # multi-document transactions, which MongoDB only allows on a replica set.
+  # The healthcheck initiates the replica set on first boot.
+  # mongo:
+  #   image: mongo:7
+  #   command: ["--replSet", "rs0", "--bind_ip_all"]
+  #   ports:
+  #     - "27017:27017"
+  #   volumes:
+  #     - mongodata:/data/db
+  #   healthcheck:
+  #     test:
+  #       - CMD
+  #       - mongosh
+  #       - --quiet
+  #       - --eval
+  #       - "try { rs.status().ok } catch (e) { rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: 'mongo:27017' }] }).ok }"
+  #     interval: 10s
+  #     timeout: 10s
+  #     retries: 10
+  #     start_period: 30s
+
+volumes:
+  pgdata:
+  # mongodata:

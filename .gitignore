@@ -1,0 +1,21 @@
+# Binaries
+/bin/
+*.exe
+*.out
+
+# Env / secrets
+.env
+
+# Go
+vendor/
+*.test
+coverage.out
+
+# Editor
+.idea/
+.vscode/
+
+# Cursor related
+.cursor/
+# EXCEPT for your shared project rules
+!.cursor/rules/

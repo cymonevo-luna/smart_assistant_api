@@ -1,0 +1,101 @@
+# go_template DEPLOY compose (daemon / systemd).
+#
+# This file only RUNS the prebuilt API image (go_template:latest) plus its
+# datastores (Postgres + Redis) and a one-shot migrate job. It contains NO
+# `build:` sections, so it can live in a deploy directory WITHOUT the source
+# tree (e.g. /opt/go_template) — which is exactly how the systemd unit written
+# by scripts/refresh-daemon.sh invokes it (`docker compose up -d` from the
+# deploy dir).
+#
+# Build/refresh from the repo:
+#   scripts/refresh-daemon.sh            # build image + sync + restart daemon
+#
+# Keep this in sync with docker-compose.yml (the local-dev BUILD compose):
+# whenever you change the Dockerfile, exposed port, env vars, or datastore
+# wiring there, mirror it here (services, environment, depends_on, healthchecks,
+# volumes, ports). The deploy compose must never reference a relative build
+# context, because the deploy dir has no source tree.
+#
+# Validate after editing:
+#   docker compose -f docker-compose.deploy.yml config
+
+name: go_template
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: go_template
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "60", "1"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # One-shot: applies schema migrations, then exits. Reuses the API image
+  # (which bundles the migrate binary and the migrations directory). The deploy
+  # dir has no source tree, so migrations run from the image rather than from a
+  # mounted init script.
+  migrate:
+    image: go_template:latest
+    pull_policy: never
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_DRIVER: postgres
+      DB_URI: postgres://postgres:postgres@postgres:5432/go_template?sslmode=disable
+    entrypoint: ["/app/migrate"]
+    command: ["up"]
+
+  api:
+    image: go_template:latest
+    pull_policy: never
+    restart: unless-stopped
+    # Inject every credential/setting from .env into the container at startup.
+    # Marked optional so the stack still boots from the defaults below when no
+    # .env is present. Real env_file values are overridden by the explicit
+    # `environment` entries that target the compose network.
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DB_DRIVER: postgres
+      DB_URI: postgres://postgres:postgres@postgres:5432/go_template?sslmode=disable
+      CACHE_DRIVER: redis
+      QUEUE_DRIVER: redis
+      REDIS_ADDR: redis:6379
+      RATE_LIMIT_ENABLED: "true"
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  pgdata:
+  redisdata:
