@@ -1,0 +1,37 @@
+# Notify luna_jenkins to deploy after a push to master.
+#
+# luna_jenkins (the host-side deploy runner) exposes a Generic Webhook Trigger
+# endpoint. This workflow POSTs the push details there; the deploy job filters on
+# repo + refs/heads/master and runs scripts/refresh-daemon.sh on the host.
+#
+# Required GitHub repository secrets (Settings -> Secrets and variables -> Actions):
+#   LUNA_DEPLOY_WEBHOOK_URL    e.g. https://<jenkins-host>/generic-webhook-trigger/invoke
+#   LUNA_DEPLOY_WEBHOOK_TOKEN  matches WEBHOOK_TOKEN on luna_jenkins (the webhook-token credential)
+#
+# Alternative: configure a native GitHub webhook (Settings -> Webhooks) with the
+# same Payload URL plus ?token=<token>, content type application/json, push
+# events only. Do not enable both.
+
+name: Notify deploy on master
+
+on:
+  push:
+    branches: [master]
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger luna_jenkins deploy
+        env:
+          WEBHOOK_URL: ${{ secrets.LUNA_DEPLOY_WEBHOOK_URL }}
+          WEBHOOK_TOKEN: ${{ secrets.LUNA_DEPLOY_WEBHOOK_TOKEN }}
+        run: |
+          BODY=$(jq -n \
+            --arg ref "refs/heads/master" \
+            --arg repo "${{ github.repository }}" \
+            --arg after "${{ github.sha }}" \
+            '{ref:$ref, after:$after, repository:{full_name:$repo}, pusher:{name:"github-actions"}}')
+          curl -fsS -X POST "${WEBHOOK_URL}?token=${WEBHOOK_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "$BODY"
