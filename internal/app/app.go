@@ -125,5 +125,11 @@ func buildRouter(cfg *config.Config, log logger.Logger, c *Container) http.Handl
 	adminHandler := handler.NewAdminUserHandler(c.UserService)
 	adminHandler.Register(r, appmw.Auth(c.Tokens), appmw.RequireRole(auth.RoleAdmin))
 
+	pluginHandler := handler.NewPluginHandler(c.PluginService)
+	pluginHandler.Register(r, appmw.Auth(c.Tokens))
+
+	adminPluginHandler := handler.NewAdminPluginHandler(c.PluginService, c.Validator)
+	adminPluginHandler.Register(r, appmw.Auth(c.Tokens), appmw.RequireRole(auth.RoleAdmin))
+
 	return r
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/cymonevo/go_template/internal/config"
+	"github.com/cymonevo/go_template/internal/domain/plugin"
 	"github.com/cymonevo/go_template/internal/domain/user"
 	"github.com/cymonevo/go_template/internal/handler"
 	"github.com/cymonevo/go_template/internal/infra/mongo"
@@ -17,6 +18,7 @@ import (
 	"github.com/cymonevo/go_template/pkg/store"
 	"github.com/cymonevo/go_template/pkg/validator"
 	"github.com/cymonevo/go_template/pkg/worker"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 	mongodriver "go.mongodb.org/mongo-driver/mongo"
 )
@@ -38,7 +40,12 @@ type Container struct {
 	TxManager   store.TxManager
 	Scheduler   *worker.Scheduler
 
-	UserService *user.Service
+	UserService   *user.Service
+	PluginService *plugin.Service
+
+	pgPool      *pgxpool.Pool
+	mongoClient *mongodriver.Client
+	mongoDB     *mongodriver.Database
 
 	redisClient *redis.Client
 	pingers     map[string]handler.Pinger
@@ -68,18 +75,20 @@ func BuildContainer(ctx context.Context, cfg *config.Config, log logger.Logger) 
 	}
 	c.buildRateLimiter()
 
-	// The database backend is chosen here and ONLY here. The returned store and
-	// transaction manager satisfy store.Store[user.User] and store.TxManager
-	// regardless of engine, so no repository/service/handler code is aware of
-	// the choice.
-	userStore, err := c.buildUserStore(ctx)
-	if err != nil {
+	// The database backend is chosen here and ONLY here. Stores and the
+	// transaction manager are engine-agnostic, so no repository/service/handler
+	// code is aware of the choice.
+	if err := c.buildDatabase(ctx); err != nil {
 		return nil, err
 	}
 
-	userRepo := user.NewRepository(userStore)
+	userRepo := user.NewRepository(c.userStore())
 	userCache := cache.NewTyped[user.User](c.Cache, cfg.Cache.TTL)
 	c.UserService = user.NewService(userRepo, userCache, c.TxManager, c.Queue, c.Tokens, log)
+
+	pluginRepo := plugin.NewRepository(c.pluginStore())
+	pluginCache := cache.NewTyped[plugin.Plugin](c.Cache, cfg.Cache.TTL)
+	c.PluginService = plugin.NewService(pluginRepo, pluginCache, c.TxManager, log)
 
 	c.registerJobs()
 	return c, nil
@@ -147,36 +156,62 @@ func (c *Container) buildRateLimiter() {
 	c.Log.Info("rate limiter ready", logger.String("driver", "memory"))
 }
 
-// buildUserStore is the single switch point between databases. It also builds
-// the matching transaction manager.
-func (c *Container) buildUserStore(ctx context.Context) (store.Store[user.User], error) {
-	schema := store.Schema{Name: user.TableName, IDColumn: "id"}
-
+// buildDatabase is the single switch point between databases. It also builds
+// the matching transaction manager and keeps shared connection handles for
+// every entity store.
+func (c *Container) buildDatabase(ctx context.Context) error {
 	switch c.Cfg.Database.Driver {
 	case config.DriverPostgres:
 		pool, err := postgres.Connect(ctx, c.Cfg.Database)
 		if err != nil {
-			return nil, err
+			return err
 		}
+		c.pgPool = pool
 		c.Log.Info("database ready", logger.String("driver", "postgres"))
 		c.TxManager = store.NewPostgresTxManager(pool)
 		c.pingers["postgres"] = pingerFunc(func(ctx context.Context) error { return pool.Ping(ctx) })
 		c.closers = append(c.closers, func(context.Context) error { pool.Close(); return nil })
-		return store.NewPostgresStore[user.User](pool, schema), nil
+		return nil
 
 	case config.DriverMongo:
 		client, db, err := mongo.Connect(ctx, c.Cfg.Database)
 		if err != nil {
-			return nil, err
+			return err
 		}
+		c.mongoClient = client
+		c.mongoDB = db
 		c.Log.Info("database ready", logger.String("driver", "mongo"))
 		c.TxManager = store.NewMongoTxManager(client)
 		c.pingers["mongo"] = pingerFunc(func(ctx context.Context) error { return client.Ping(ctx, nil) })
 		c.closers = append(c.closers, func(ctx context.Context) error { return disconnectMongo(ctx, client) })
-		return store.NewMongoStore[user.User](db, schema), nil
+		return nil
 
 	default:
-		return nil, fmt.Errorf("unsupported database driver %q", c.Cfg.Database.Driver)
+		return fmt.Errorf("unsupported database driver %q", c.Cfg.Database.Driver)
+	}
+}
+
+func (c *Container) userStore() store.Store[user.User] {
+	schema := store.Schema{Name: user.TableName, IDColumn: "id"}
+	switch c.Cfg.Database.Driver {
+	case config.DriverPostgres:
+		return store.NewPostgresStore[user.User](c.pgPool, schema)
+	case config.DriverMongo:
+		return store.NewMongoStore[user.User](c.mongoDB, schema)
+	default:
+		panic(fmt.Sprintf("unsupported database driver %q", c.Cfg.Database.Driver))
+	}
+}
+
+func (c *Container) pluginStore() store.Store[plugin.Plugin] {
+	schema := store.Schema{Name: plugin.TableName, IDColumn: "id"}
+	switch c.Cfg.Database.Driver {
+	case config.DriverPostgres:
+		return store.NewPostgresStore[plugin.Plugin](c.pgPool, schema)
+	case config.DriverMongo:
+		return store.NewMongoStore[plugin.Plugin](c.mongoDB, schema)
+	default:
+		panic(fmt.Sprintf("unsupported database driver %q", c.Cfg.Database.Driver))
 	}
 }
 
