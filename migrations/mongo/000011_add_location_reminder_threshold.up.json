@@ -1,0 +1,12 @@
+[
+  {
+    "update": "assistant_settings",
+    "updates": [
+      {
+        "q": {},
+        "u": { "$set": { "location_reminder_threshold_meters": 100 } },
+        "multi": true
+      }
+    ]
+  }
+]

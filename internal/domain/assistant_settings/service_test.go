@@ -91,6 +91,9 @@ func TestService_GetOrCreateDefaults(t *testing.T) {
 	if settings.ActiveListeningEnabled {
 		t.Fatal("expected active listening disabled by default")
 	}
+	if settings.LocationReminderThresholdMeters != DefaultLocationReminderThresholdMeters {
+		t.Fatalf("expected threshold %d, got %d", DefaultLocationReminderThresholdMeters, settings.LocationReminderThresholdMeters)
+	}
 	if len(repo.items) != 1 {
 		t.Fatalf("expected one persisted row, got %d", len(repo.items))
 	}
@@ -186,5 +189,85 @@ func TestService_UpdateRejectsLongWakeWord(t *testing.T) {
 	}
 	if appErr.Fields["wake_word"] == "" {
 		t.Fatal("expected field error on wake_word")
+	}
+}
+
+func TestService_UpdateLocationReminderThreshold(t *testing.T) {
+	svc, _ := newTestService(t)
+	ctx := context.Background()
+
+	threshold := 200
+	updated, err := svc.Update(ctx, "user-1", UpdateInput{
+		WakeWord:                        "Friday",
+		ActiveListeningEnabled:          false,
+		LocationReminderThresholdMeters: &threshold,
+	})
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if updated.LocationReminderThresholdMeters != 200 {
+		t.Fatalf("expected threshold 200, got %d", updated.LocationReminderThresholdMeters)
+	}
+
+	got, err := svc.GetOrCreate(ctx, "user-1")
+	if err != nil {
+		t.Fatalf("GetOrCreate: %v", err)
+	}
+	if got.LocationReminderThresholdMeters != 200 {
+		t.Fatalf("expected persisted threshold 200, got %d", got.LocationReminderThresholdMeters)
+	}
+}
+
+func TestService_UpdateRejectsInvalidLocationReminderThreshold(t *testing.T) {
+	svc, _ := newTestService(t)
+	ctx := context.Background()
+
+	for _, meters := range []int{0, 99999} {
+		threshold := meters
+		_, err := svc.Update(ctx, "user-1", UpdateInput{
+			WakeWord:                        "Friday",
+			LocationReminderThresholdMeters: &threshold,
+		})
+		if err == nil {
+			t.Fatalf("expected validation error for threshold %d", meters)
+		}
+		appErr, ok := err.(*response.AppError)
+		if !ok {
+			t.Fatalf("expected *response.AppError, got %T", err)
+		}
+		if appErr.Status != 422 {
+			t.Fatalf("expected status 422, got %d", appErr.Status)
+		}
+		if appErr.Fields["location_reminder_threshold_meters"] == "" {
+			t.Fatal("expected field error on location_reminder_threshold_meters")
+		}
+	}
+}
+
+func TestService_UpdatePreservesThresholdWhenOmitted(t *testing.T) {
+	svc, _ := newTestService(t)
+	ctx := context.Background()
+
+	threshold := 150
+	_, err := svc.Update(ctx, "user-1", UpdateInput{
+		WakeWord:                        "Friday",
+		LocationReminderThresholdMeters: &threshold,
+	})
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	updated, err := svc.Update(ctx, "user-1", UpdateInput{
+		WakeWord:               "Helper",
+		ActiveListeningEnabled: false,
+	})
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if updated.WakeWord != "Helper" {
+		t.Fatalf("expected wake word Helper, got %q", updated.WakeWord)
+	}
+	if updated.LocationReminderThresholdMeters != 150 {
+		t.Fatalf("expected threshold unchanged at 150, got %d", updated.LocationReminderThresholdMeters)
 	}
 }

@@ -56,6 +56,10 @@ func TestAssistantSettingsDefaultOnFirstGet(t *testing.T) {
 	if settings.ActiveListeningEnabled {
 		t.Fatal("expected active_listening_enabled false by default")
 	}
+	if settings.LocationReminderThresholdMeters != assistantsettings.DefaultLocationReminderThresholdMeters {
+		t.Fatalf("expected location_reminder_threshold_meters %d, got %d",
+			assistantsettings.DefaultLocationReminderThresholdMeters, settings.LocationReminderThresholdMeters)
+	}
 	if settings.UpdatedAt.IsZero() {
 		t.Fatal("expected updated_at to be set")
 	}
@@ -107,4 +111,78 @@ func TestAssistantSettingsRejectEmptyWakeWord(t *testing.T) {
 
 func TestAssistantSettingsRequireAuthentication(t *testing.T) {
 	newClient(t).get("/api/v1/assistant/settings").requireStatus(t, http.StatusUnauthorized)
+}
+
+func TestAssistantSettingsUpdateLocationReminderThreshold(t *testing.T) {
+	authed := registerAndLogin(t)
+
+	put := authed.put("/api/v1/assistant/settings", map[string]any{
+		"wake_word":                          "Jarvis",
+		"active_listening_enabled":           false,
+		"location_reminder_threshold_meters": 200,
+	})
+	put.requireStatus(t, http.StatusOK)
+
+	var updated assistantsettings.Response
+	put.decode(t, &updated)
+	if updated.LocationReminderThresholdMeters != 200 {
+		t.Fatalf("expected location_reminder_threshold_meters 200, got %d", updated.LocationReminderThresholdMeters)
+	}
+
+	get := authed.get("/api/v1/assistant/settings")
+	get.requireStatus(t, http.StatusOK)
+
+	var persisted assistantsettings.Response
+	get.decode(t, &persisted)
+	if persisted.LocationReminderThresholdMeters != 200 {
+		t.Fatalf("expected persisted threshold 200, got %d", persisted.LocationReminderThresholdMeters)
+	}
+}
+
+func TestAssistantSettingsRejectInvalidLocationReminderThreshold(t *testing.T) {
+	authed := registerAndLogin(t)
+
+	res := authed.put("/api/v1/assistant/settings", map[string]any{
+		"wake_word":                          "Jarvis",
+		"location_reminder_threshold_meters": 0,
+	})
+	res.requireStatus(t, http.StatusUnprocessableEntity)
+
+	if res.Envelope.Error == nil {
+		t.Fatal("expected error body")
+	}
+	if res.Envelope.Error.Fields["location_reminder_threshold_meters"] == "" {
+		t.Fatalf("expected field error on location_reminder_threshold_meters, got %+v", res.Envelope.Error.Fields)
+	}
+}
+
+func TestAssistantSettingsWakeWordUpdatePreservesThreshold(t *testing.T) {
+	authed := registerAndLogin(t)
+
+	get := authed.get("/api/v1/assistant/settings")
+	get.requireStatus(t, http.StatusOK)
+
+	var defaults assistantsettings.Response
+	get.decode(t, &defaults)
+	if defaults.LocationReminderThresholdMeters != assistantsettings.DefaultLocationReminderThresholdMeters {
+		t.Fatalf("expected default threshold %d, got %d",
+			assistantsettings.DefaultLocationReminderThresholdMeters, defaults.LocationReminderThresholdMeters)
+	}
+
+	put := authed.put("/api/v1/assistant/settings", map[string]any{
+		"wake_word":                          "Helper",
+		"active_listening_enabled":           false,
+		"location_reminder_threshold_meters": assistantsettings.DefaultLocationReminderThresholdMeters,
+	})
+	put.requireStatus(t, http.StatusOK)
+
+	var updated assistantsettings.Response
+	put.decode(t, &updated)
+	if updated.WakeWord != "Helper" {
+		t.Fatalf("expected wake_word Helper, got %q", updated.WakeWord)
+	}
+	if updated.LocationReminderThresholdMeters != assistantsettings.DefaultLocationReminderThresholdMeters {
+		t.Fatalf("expected threshold unchanged at %d, got %d",
+			assistantsettings.DefaultLocationReminderThresholdMeters, updated.LocationReminderThresholdMeters)
+	}
 }

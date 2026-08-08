@@ -112,6 +112,8 @@ definitions:
     properties:
       active_listening_enabled:
         type: boolean
+      location_reminder_threshold_meters:
+        type: integer
       updated_at:
         type: string
       wake_word:
@@ -121,6 +123,8 @@ definitions:
     properties:
       active_listening_enabled:
         type: boolean
+      location_reminder_threshold_meters:
+        type: integer
       wake_word:
         maxLength: 32
         type: string
@@ -303,13 +307,31 @@ definitions:
         type: string
       id:
         type: string
+      latitude:
+        type: number
+      location_mode:
+        type: string
+      longitude:
+        type: number
       message:
         type: string
       notified_at:
         type: string
+      place_keyword:
+        type: string
+      place_query:
+        type: string
+      radius_meters:
+        type: integer
       remind_at:
         type: string
       status:
+        type: string
+      title:
+        type: string
+      trigger_type:
+        type: string
+      triggered_at:
         type: string
       updated_at:
         type: string
@@ -772,6 +794,8 @@ paths:
     put:
       consumes:
       - application/json
+      description: Updates wake word, active listening, and location reminder distance
+        threshold (10–5000 meters).
       parameters:
       - description: Settings payload
         in: body
@@ -976,6 +1000,134 @@ paths:
       summary: Google OAuth callback
       tags:
       - plugins
+  /api/v1/reminders:
+    get:
+      parameters:
+      - description: 'Filter by status (default: pending)'
+        in: query
+        name: status
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/reminder.Response'
+                  type: array
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+      - BearerAuth: []
+      summary: List location reminders
+      tags:
+      - reminders
+  /api/v1/reminders/{id}:
+    delete:
+      parameters:
+      - description: Reminder ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/reminder.Response'
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+      - BearerAuth: []
+      summary: Cancel a reminder
+      tags:
+      - reminders
+    get:
+      parameters:
+      - description: Reminder ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/reminder.Response'
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+      - BearerAuth: []
+      summary: Get a reminder
+      tags:
+      - reminders
+  /api/v1/reminders/{id}/triggered:
+    patch:
+      parameters:
+      - description: Reminder ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/reminder.Response'
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+      - BearerAuth: []
+      summary: Mark a reminder as triggered
+      tags:
+      - reminders
   /api/v1/users/{id}:
     get:
       parameters:
@@ -1251,8 +1403,8 @@ paths:
       - user-plugins
   /api/v1/users/me/reminders:
     get:
-      description: 'Returns active reminders for the authenticated user. Filter by
-        UTC date: today, tomorrow, or all (default).'
+      description: 'Returns active time reminders for the authenticated user. Filter
+        by UTC date: today, tomorrow, or all (default).'
       parameters:
       - default: all
         description: 'Date filter: today, tomorrow, or all'
