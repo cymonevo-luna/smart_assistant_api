@@ -15,7 +15,7 @@ import (
 func TestRoutingExecutorBuiltinReminderAdapter(t *testing.T) {
 	log, _ := logger.New("debug", false)
 	reminderSvc := reminder.NewService(reminder.NewRepository(store.NewMemoryStore[reminder.Reminder]()))
-	builtinExec := NewBuiltinExecutor(reminderSvc, log)
+	builtinExec := NewBuiltinExecutor(reminderSvc, nil, nil, log)
 
 	p := &plugin.Plugin{
 		Slug: builtin.ReminderSlug,

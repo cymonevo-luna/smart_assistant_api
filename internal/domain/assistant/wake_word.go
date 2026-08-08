@@ -83,6 +83,9 @@ func confirmationPrompt(pluginName string, args map[string]any) string {
 			return prompt
 		}
 	}
+	if prompt := confirmationPromptLocationReminder(args); prompt != "" {
+		return prompt
+	}
 	email := stringArgValue(args, "attendee_email")
 	if email != "" {
 		name := stringArgValue(args, "attendee_name")
@@ -192,5 +195,131 @@ func confirmationPromptReminder(operation string, args map[string]any) string {
 		return fmt.Sprintf("Should I delete the reminder to %s?", message)
 	default:
 		return ""
+	}
+}
+
+func confirmationPromptLocationReminder(args map[string]any) string {
+	title := stringArgValue(args, "title")
+	mode := stringArgValue(args, "location_mode")
+	if title == "" || mode == "" {
+		return ""
+	}
+
+	radius := 100
+	if raw, ok := args["radius_meters"]; ok {
+		switch v := raw.(type) {
+		case int:
+			radius = v
+		case float64:
+			radius = int(v)
+		}
+	}
+
+	place := stringArgValue(args, "place_query")
+	if mode == builtin.LocationModePlaceKeyword {
+		place = builtin.NormalizePlaceKeyword(place)
+	}
+	if place == "" {
+		place = "the specified place"
+	}
+
+	return fmt.Sprintf("Should I remind you to %q when you're within %dm of %s?", title, radius, place)
+}
+
+func firstMissingLocationReminderArgument(args map[string]any) (string, string) {
+	if stringArgValue(args, "title") == "" {
+		return "title", "What should I remind you about?"
+	}
+
+	mode := stringArgValue(args, "location_mode")
+	if mode == "" {
+		return "location_mode", "Is this for a specific address or any nearby place?"
+	}
+
+	query := stringArgValue(args, "place_query")
+	if mode == builtin.LocationModeExact {
+		if query == "" || builtin.IsVaguePlaceQuery(query) {
+			if builtin.IsVaguePlaceQuery(query) {
+				delete(args, "place_query")
+			}
+			return "place_query", "What is the address?"
+		}
+		return "", ""
+	}
+
+	if mode == builtin.LocationModePlaceKeyword {
+		if query == "" {
+			return "place_query", "Where can you do that? (e.g. any nearby Alfamart)"
+		}
+		args["place_query"] = builtin.NormalizePlaceKeyword(query)
+		return "", ""
+	}
+
+	return "", ""
+}
+
+func applyLocationReminderFollowUp(missingArg, text string, args map[string]any) bool {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return false
+	}
+
+	switch missingArg {
+	case "location_mode":
+		if mode, query, ok := parseLocationModeReply(text); ok {
+			args["location_mode"] = mode
+			if query != "" {
+				args["place_query"] = query
+			}
+			return true
+		}
+		args["location_mode"] = text
+		return true
+	case "place_query":
+		mode := stringArgValue(args, "location_mode")
+		if mode == builtin.LocationModePlaceKeyword || looksLikePlaceKeywordReply(text) {
+			args["location_mode"] = builtin.LocationModePlaceKeyword
+			args["place_query"] = builtin.NormalizePlaceKeyword(text)
+			return true
+		}
+		args["place_query"] = text
+		return true
+	}
+	return false
+}
+
+func parseLocationModeReply(text string) (mode, placeQuery string, ok bool) {
+	lower := strings.ToLower(strings.TrimSpace(text))
+	switch lower {
+	case "exact", "specific", "specific address", "address":
+		return builtin.LocationModeExact, "", true
+	case "place_keyword", "nearby", "any nearby", "any nearby place":
+		return builtin.LocationModePlaceKeyword, "", true
+	}
+	if strings.Contains(lower, "nearby") || strings.Contains(lower, "any ") {
+		return builtin.LocationModePlaceKeyword, builtin.NormalizePlaceKeyword(text), true
+	}
+	return "", "", false
+}
+
+func looksLikePlaceKeywordReply(text string) bool {
+	lower := strings.ToLower(text)
+	return strings.Contains(lower, "nearby") || strings.Contains(lower, "any ")
+}
+
+func inferLocationReminderFromText(text string, args map[string]any) {
+	query := stringArgValue(args, "place_query")
+	if query == "" {
+		return
+	}
+	if stringArgValue(args, "location_mode") == "" {
+		if looksLikePlaceKeywordReply(query) {
+			args["location_mode"] = builtin.LocationModePlaceKeyword
+			args["place_query"] = builtin.NormalizePlaceKeyword(query)
+		} else if !builtin.IsVaguePlaceQuery(query) {
+			args["location_mode"] = builtin.LocationModeExact
+		}
+	} else if stringArgValue(args, "location_mode") == builtin.LocationModePlaceKeyword {
+		args["place_query"] = builtin.NormalizePlaceKeyword(query)
 	}
 }

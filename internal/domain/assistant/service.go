@@ -212,8 +212,17 @@ func (s *Service) handlePendingAction(ctx context.Context, userID string, sessio
 		if pending.Arguments == nil {
 			pending.Arguments = map[string]any{}
 		}
-		pending.Arguments[pending.MissingArgument] = strings.TrimSpace(text)
-		pending.MissingArgument = ""
+		if isLocationReminderSlug(pending.PluginSlug) {
+			if applyLocationReminderFollowUp(pending.MissingArgument, text, pending.Arguments) {
+				pending.MissingArgument = ""
+			} else {
+				pending.Arguments[pending.MissingArgument] = strings.TrimSpace(text)
+				pending.MissingArgument = ""
+			}
+		} else {
+			pending.Arguments[pending.MissingArgument] = strings.TrimSpace(text)
+			pending.MissingArgument = ""
+		}
 	}
 
 	return s.advancePlugin(ctx, userID, eligible, pending.Arguments, text)
@@ -320,6 +329,55 @@ func (s *Service) advancePlugin(ctx context.Context, userID string, eligible eli
 		return s.executePlugin(ctx, userID, eligible, args)
 	}
 
+	if isLocationReminderPlugin(eligible.catalog) {
+		inferLocationReminderFromText(text, args)
+
+		missingName, prompt := firstMissingLocationReminderArgument(args)
+		if missingName != "" {
+			pending := &PendingAction{
+				PluginSlug:      eligible.catalog.Slug,
+				PluginID:        eligible.catalog.ID,
+				InstallID:       eligible.install.ID,
+				Arguments:       args,
+				MissingArgument: missingName,
+			}
+			return Reply{
+				Type: ReplyTypeFollowUp,
+				Text: prompt,
+				Action: &ActionInfo{
+					PluginSlug: eligible.catalog.Slug,
+					Status:     ActionStatusPending,
+				},
+			}, pending, SessionStatusActive, nil
+		}
+
+		settings, err := s.settings.GetOrCreate(ctx, userID)
+		if err != nil {
+			return Reply{}, nil, SessionStatusActive, err
+		}
+		args["radius_meters"] = settings.LocationReminderThresholdMeters
+
+		if eligible.catalog.Manifest.ConfirmationRequired {
+			pending := &PendingAction{
+				PluginSlug:           eligible.catalog.Slug,
+				PluginID:             eligible.catalog.ID,
+				InstallID:            eligible.install.ID,
+				Arguments:            args,
+				AwaitingConfirmation: true,
+			}
+			return Reply{
+				Type: ReplyTypeConfirmation,
+				Text: confirmationPrompt(eligible.catalog.Name, args),
+				Action: &ActionInfo{
+					PluginSlug: eligible.catalog.Slug,
+					Status:     ActionStatusPending,
+				},
+			}, pending, SessionStatusActive, nil
+		}
+
+		return s.executePlugin(ctx, userID, eligible, args)
+	}
+
 	missingName, prompt := firstMissingArgument(eligible.catalog.Manifest, args)
 	if missingName != "" {
 		pending := &PendingAction{
@@ -366,9 +424,13 @@ func (s *Service) executePlugin(ctx context.Context, userID string, eligible eli
 
 	result, err := s.executor.Execute(ctx, userID, eligible.catalog, execArgs)
 	if err != nil {
+		errText := builtin.ExecutorErrorText(err)
+		if isLocationReminderPlugin(eligible.catalog) {
+			errText = builtin.LocationReminderExecutorErrorText(err)
+		}
 		return Reply{
 			Type: ReplyTypeActionResult,
-			Text: builtin.ExecutorErrorText(err),
+			Text: errText,
 			Action: &ActionInfo{
 				PluginSlug: eligible.catalog.Slug,
 				Status:     ActionStatusFailed,
@@ -377,19 +439,26 @@ func (s *Service) executePlugin(ctx context.Context, userID string, eligible eli
 	}
 
 	replyText := fmt.Sprintf("Done. %s completed successfully.", eligible.catalog.Name)
+	var clientPayload map[string]any
 	if result != nil {
 		if custom, ok := result["reply_text"].(string); ok && strings.TrimSpace(custom) != "" {
 			replyText = custom
 		}
+		if cp, ok := result["client_payload"].(map[string]any); ok {
+			clientPayload = cp
+		}
+	}
+
+	action := &ActionInfo{
+		PluginSlug: eligible.catalog.Slug,
+		Status:     ActionStatusSuccess,
+		Payload:    clientPayload,
 	}
 
 	return Reply{
-		Type: ReplyTypeActionResult,
-		Text: replyText,
-		Action: &ActionInfo{
-			PluginSlug: eligible.catalog.Slug,
-			Status:     ActionStatusSuccess,
-		},
+		Type:   ReplyTypeActionResult,
+		Text:   replyText,
+		Action: action,
 	}, nil, SessionStatusActive, nil
 }
 
@@ -410,6 +479,18 @@ func isReminderPlugin(p *plugin.Plugin) bool {
 	}
 	adapter, _ := p.Manifest.Executor.Config["builtin_adapter"].(string)
 	return adapter == builtin.AdapterReminder
+}
+
+func isLocationReminderPlugin(p *plugin.Plugin) bool {
+	if p.Slug == builtin.LocationReminderSlug {
+		return true
+	}
+	adapter, _ := p.Manifest.Executor.Config["builtin_adapter"].(string)
+	return adapter == builtin.AdapterLocationReminder
+}
+
+func isLocationReminderSlug(slug string) bool {
+	return slug == builtin.LocationReminderSlug
 }
 
 func (s *Service) listEligiblePlugins(ctx context.Context, userID string) ([]eligiblePlugin, error) {
