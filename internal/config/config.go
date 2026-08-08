@@ -32,21 +32,24 @@ const (
 
 // Config is the root configuration aggregate.
 type Config struct {
-	App       AppConfig
-	HTTP      HTTPConfig
-	Database  DatabaseConfig
-	Cache     CacheConfig
-	Queue     QueueConfig
-	RateLimit RateLimitConfig
-	Auth      AuthConfig
-	LLM       LLMConfig
-	Composio  ComposioConfig
+	App         AppConfig
+	HTTP        HTTPConfig
+	Database    DatabaseConfig
+	Cache       CacheConfig
+	Queue       QueueConfig
+	RateLimit   RateLimitConfig
+	Auth        AuthConfig
+	LLM         LLMConfig
+	Composio    ComposioConfig
+	OAuthGoogle OAuthGoogleConfig
+	Credentials CredentialsConfig
 }
 
 type AppConfig struct {
-	Name        string `env:"APP_NAME" envDefault:"go_template"`
-	Environment string `env:"APP_ENV" envDefault:"development"`
-	LogLevel    string `env:"LOG_LEVEL" envDefault:"debug"`
+	Name                 string `env:"APP_NAME" envDefault:"go_template"`
+	Environment          string `env:"APP_ENV" envDefault:"development"`
+	LogLevel             string `env:"LOG_LEVEL" envDefault:"debug"`
+	OAuthSuccessRedirect string `env:"APP_OAUTH_SUCCESS_REDIRECT" envDefault:"smartassistant://plugin-setup/complete"`
 }
 
 func (a AppConfig) IsProduction() bool { return a.Environment == "production" }
@@ -122,6 +125,17 @@ type LLMConfig struct {
 // ComposioConfig configures the Composio tool execution client.
 type ComposioConfig struct {
 	APIKey string `env:"COMPOSIO_API_KEY"`
+}
+
+type OAuthGoogleConfig struct {
+	ClientID     string `env:"GOOGLE_OAUTH_CLIENT_ID"`
+	ClientSecret string `env:"GOOGLE_OAUTH_CLIENT_SECRET"`
+	RedirectURL  string `env:"GOOGLE_OAUTH_REDIRECT_URL"`
+	TokenURL     string `env:"GOOGLE_OAUTH_TOKEN_URL"`
+}
+
+type CredentialsConfig struct {
+	EncryptionKey string `env:"CREDENTIALS_ENCRYPTION_KEY"`
 }
 
 // Load reads configuration from the environment. The .env file, if present, is

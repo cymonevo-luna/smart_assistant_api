@@ -8,6 +8,8 @@ import (
 	"github.com/cymonevo/go_template/internal/domain/assistant"
 	"github.com/cymonevo/go_template/internal/domain/assistant_settings"
 	"github.com/cymonevo/go_template/internal/domain/plugin"
+	"github.com/cymonevo/go_template/internal/domain/plugin_credential"
+	"github.com/cymonevo/go_template/internal/domain/plugin_setup/oauth_google"
 	"github.com/cymonevo/go_template/internal/domain/user"
 	"github.com/cymonevo/go_template/internal/domain/user_plugin"
 	"github.com/cymonevo/go_template/internal/handler"
@@ -16,6 +18,7 @@ import (
 	"github.com/cymonevo/go_template/pkg/auth"
 	"github.com/cymonevo/go_template/pkg/cache"
 	"github.com/cymonevo/go_template/pkg/composio"
+	"github.com/cymonevo/go_template/pkg/crypto"
 	"github.com/cymonevo/go_template/pkg/llm"
 	"github.com/cymonevo/go_template/pkg/logger"
 	"github.com/cymonevo/go_template/pkg/queue"
@@ -49,6 +52,10 @@ type Container struct {
 	AssistantService         *assistant.Service
 	PluginService            *plugin.Service
 	UserPluginService        *userplugin.Service
+	UserPluginRepo           userplugin.Repository
+	PluginRepo               plugin.Repository
+	PluginCredentialService  *plugincredential.Service
+	GoogleOAuthSetupService  *oauthgoogle.Service
 
 	redisClient *redis.Client
 	pingers     map[string]handler.Pinger
@@ -81,7 +88,7 @@ func BuildContainer(ctx context.Context, cfg *config.Config, log logger.Logger) 
 	// The database backend is chosen here and ONLY here. The returned stores and
 	// transaction manager satisfy store.Store[T] and store.TxManager regardless
 	// of engine, so no repository/service/handler code is aware of the choice.
-	userStore, assistantSettingsStore, pluginStore, userPluginStore, assistantSessionStore, assistantMessageStore, err := c.buildStores(ctx)
+	userStore, assistantSettingsStore, pluginStore, userPluginStore, pluginCredentialStore, assistantSessionStore, assistantMessageStore, err := c.buildStores(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -94,11 +101,42 @@ func BuildContainer(ctx context.Context, cfg *config.Config, log logger.Logger) 
 	c.AssistantSettingsService = assistantsettings.NewService(assistantSettingsRepo)
 
 	pluginRepo := plugin.NewRepository(pluginStore)
+	c.PluginRepo = pluginRepo
 	pluginCache := cache.NewTyped[plugin.Plugin](c.Cache, cfg.Cache.TTL)
 	c.PluginService = plugin.NewService(pluginRepo, pluginCache, c.TxManager, log)
 
 	userPluginRepo := userplugin.NewRepository(userPluginStore)
-	c.UserPluginService = userplugin.NewService(userPluginRepo, pluginRepo, nil)
+	c.UserPluginRepo = userPluginRepo
+
+	encKey := c.Cfg.Credentials.EncryptionKey
+	if encKey == "" {
+		encKey = c.Cfg.Auth.JWTSecret
+	}
+	encryptor, err := crypto.NewEncryptor(encKey)
+	if err != nil {
+		return nil, fmt.Errorf("credential encryptor: %w", err)
+	}
+
+	pluginCredentialRepo := plugincredential.NewRepository(pluginCredentialStore)
+	c.PluginCredentialService = plugincredential.NewService(pluginCredentialRepo, encryptor)
+	credentialsCleaner := plugincredential.NewCleaner(c.PluginCredentialService, userPluginRepo)
+	c.UserPluginService = userplugin.NewService(userPluginRepo, pluginRepo, credentialsCleaner)
+
+	googleCfg := oauthgoogle.Config{
+		ClientID:     c.Cfg.OAuthGoogle.ClientID,
+		ClientSecret: c.Cfg.OAuthGoogle.ClientSecret,
+		RedirectURL:  c.Cfg.OAuthGoogle.RedirectURL,
+		TokenURL:     c.Cfg.OAuthGoogle.TokenURL,
+	}
+	googleExchanger := oauthgoogle.NewHTTPClient(googleCfg, nil)
+	c.GoogleOAuthSetupService = oauthgoogle.NewService(
+		googleCfg,
+		c.Cfg.Auth.JWTSecret,
+		userPluginRepo,
+		pluginRepo,
+		c.PluginCredentialService,
+		googleExchanger,
+	)
 
 	classifier := llm.NewClassifier(c.Cfg.LLM.Provider, c.Cfg.LLM.APIKey, c.Cfg.LLM.Model)
 	stubExecutor := assistant.NewStubExecutor(log)
@@ -196,6 +234,7 @@ func (c *Container) buildStores(ctx context.Context) (
 	store.Store[assistantsettings.Settings],
 	store.Store[plugin.Plugin],
 	store.Store[userplugin.UserPlugin],
+	store.Store[plugincredential.Credential],
 	store.Store[assistant.Session],
 	store.Store[assistant.Message],
 	error,
@@ -204,6 +243,7 @@ func (c *Container) buildStores(ctx context.Context) (
 	settingsSchema := store.Schema{Name: assistantsettings.TableName, IDColumn: "user_id"}
 	pluginSchema := store.Schema{Name: plugin.TableName, IDColumn: "id"}
 	userPluginSchema := store.Schema{Name: userplugin.TableName, IDColumn: "id"}
+	pluginCredentialSchema := store.Schema{Name: plugincredential.TableName, IDColumn: "id"}
 	sessionSchema := store.Schema{Name: assistant.TableNameSessions, IDColumn: "id"}
 	messageSchema := store.Schema{Name: assistant.TableNameMessages, IDColumn: "id"}
 
@@ -211,7 +251,7 @@ func (c *Container) buildStores(ctx context.Context) (
 	case config.DriverPostgres:
 		pool, err := postgres.Connect(ctx, c.Cfg.Database)
 		if err != nil {
-			return nil, nil, nil, nil, nil, nil, err
+			return nil, nil, nil, nil, nil, nil, nil, err
 		}
 		c.Log.Info("database ready", logger.String("driver", "postgres"))
 		c.TxManager = store.NewPostgresTxManager(pool)
@@ -221,13 +261,14 @@ func (c *Container) buildStores(ctx context.Context) (
 			store.NewPostgresStore[assistantsettings.Settings](pool, settingsSchema),
 			store.NewPostgresStore[plugin.Plugin](pool, pluginSchema),
 			store.NewPostgresStore[userplugin.UserPlugin](pool, userPluginSchema),
+			store.NewPostgresStore[plugincredential.Credential](pool, pluginCredentialSchema),
 			store.NewPostgresStore[assistant.Session](pool, sessionSchema),
 			store.NewPostgresStore[assistant.Message](pool, messageSchema), nil
 
 	case config.DriverMongo:
 		client, db, err := mongo.Connect(ctx, c.Cfg.Database)
 		if err != nil {
-			return nil, nil, nil, nil, nil, nil, err
+			return nil, nil, nil, nil, nil, nil, nil, err
 		}
 		c.Log.Info("database ready", logger.String("driver", "mongo"))
 		c.TxManager = store.NewMongoTxManager(client)
@@ -237,11 +278,12 @@ func (c *Container) buildStores(ctx context.Context) (
 			store.NewMongoStore[assistantsettings.Settings](db, settingsSchema),
 			store.NewMongoStore[plugin.Plugin](db, pluginSchema),
 			store.NewMongoStore[userplugin.UserPlugin](db, userPluginSchema),
+			store.NewMongoStore[plugincredential.Credential](db, pluginCredentialSchema),
 			store.NewMongoStore[assistant.Session](db, sessionSchema),
 			store.NewMongoStore[assistant.Message](db, messageSchema), nil
 
 	default:
-		return nil, nil, nil, nil, nil, nil, fmt.Errorf("unsupported database driver %q", c.Cfg.Database.Driver)
+		return nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("unsupported database driver %q", c.Cfg.Database.Driver)
 	}
 }
 
