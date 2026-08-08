@@ -39,6 +39,8 @@ type Config struct {
 	Queue       QueueConfig
 	RateLimit   RateLimitConfig
 	Auth        AuthConfig
+	LLM         LLMConfig
+	Composio    ComposioConfig
 	OAuthGoogle OAuthGoogleConfig
 	Credentials CredentialsConfig
 }
@@ -111,6 +113,18 @@ type AuthConfig struct {
 	JWTTTL     time.Duration `env:"JWT_TTL" envDefault:"15m"`
 	RefreshTTL time.Duration `env:"JWT_REFRESH_TTL" envDefault:"168h"`
 	Issuer     string        `env:"JWT_ISSUER" envDefault:"go_template"`
+}
+
+// LLMConfig configures intent classification for the assistant orchestrator.
+type LLMConfig struct {
+	Provider string `env:"LLM_PROVIDER" envDefault:"mock"`
+	APIKey   string `env:"LLM_API_KEY"`
+	Model    string `env:"LLM_MODEL" envDefault:"gpt-4o-mini"`
+}
+
+// ComposioConfig configures the Composio tool execution client.
+type ComposioConfig struct {
+	APIKey string `env:"COMPOSIO_API_KEY"`
 }
 
 type OAuthGoogleConfig struct {
