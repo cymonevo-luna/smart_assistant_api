@@ -114,6 +114,33 @@ if ! make migrate-up; then
 	die "migrations failed. Ensure postgres is reachable at localhost:5432 and retry: make migrate-up"
 fi
 
+VERIFY_OAUTH="$SCRIPT_DIR/verify-oauth-config.sh"
+if [ -x "$VERIFY_OAUTH" ]; then
+	get_env_var() {
+		local var="$1"
+		if [ -n "${!var:-}" ]; then
+			printf '%s' "${!var}"
+			return
+		fi
+		if [ -f "$ENV_FILE" ]; then
+			grep -E "^${var}=" "$ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2- || true
+		fi
+	}
+
+	oauth_client_id="$(get_env_var GOOGLE_OAUTH_CLIENT_ID)"
+	oauth_client_secret="$(get_env_var GOOGLE_OAUTH_CLIENT_SECRET)"
+	oauth_redirect_url="$(get_env_var GOOGLE_OAUTH_REDIRECT_URL)"
+
+	if [ -n "$oauth_client_id" ] && [ -n "$oauth_client_secret" ] && [ -n "$oauth_redirect_url" ]; then
+		echo ">> Verifying Google OAuth configuration ..."
+		ENV_FILE="$ENV_FILE" "$VERIFY_OAUTH"
+	elif [ -n "$oauth_client_id" ] || [ -n "$oauth_client_secret" ] || [ -n "$oauth_redirect_url" ]; then
+		echo "WARNING: partial OAuth env detected; set GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET, and GOOGLE_OAUTH_REDIRECT_URL for manual OAuth QA."
+	else
+		echo "WARNING: OAuth env vars not set; manual OAuth QA requires GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET, and GOOGLE_OAUTH_REDIRECT_URL."
+	fi
+fi
+
 cat <<EOF
 
 QA local stack is ready.
