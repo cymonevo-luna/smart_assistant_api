@@ -37,6 +37,35 @@ func TestMockClassifierMatchesScheduleMeeting(t *testing.T) {
 	if !result.Matched || result.PluginSlug != "google-calendar-meet" {
 		t.Fatalf("unexpected result: %+v", result)
 	}
+	if result.Arguments["attendee_names"] != "Janet" {
+		t.Fatalf("attendee_names = %v", result.Arguments["attendee_names"])
+	}
+	if result.Arguments["start_time"] == "" {
+		t.Fatal("expected start_time for Janet explicit-time case")
+	}
+}
+
+func TestMockClassifierMatchesMultiAttendeeNoTime(t *testing.T) {
+	mock := NewMockClassifier()
+	result, err := mock.Classify(context.Background(), ClassifyRequest{
+		Text: "schedule a meeting with kezia and albert",
+		Plugins: []PluginCandidate{{
+			Slug:     "google-calendar-meet",
+			Triggers: []string{"schedule a meeting"},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Matched || result.PluginSlug != "google-calendar-meet" {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	if result.Arguments["attendee_names"] != "Kezia, Albert" {
+		t.Fatalf("attendee_names = %v", result.Arguments["attendee_names"])
+	}
+	if _, ok := result.Arguments["start_time"]; ok {
+		t.Fatalf("expected no start_time, got %v", result.Arguments["start_time"])
+	}
 }
 
 func TestMockClassifierMatchesReminderIntents(t *testing.T) {

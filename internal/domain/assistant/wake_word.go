@@ -86,6 +86,9 @@ func confirmationPrompt(pluginName string, args map[string]any) string {
 	if prompt := confirmationPromptLocationReminder(args); prompt != "" {
 		return prompt
 	}
+	if prompt := confirmationPromptGoogleCalendarMeet(args); prompt != "" {
+		return prompt
+	}
 	email := stringArgValue(args, "attendee_email")
 	if email != "" {
 		name := stringArgValue(args, "attendee_name")

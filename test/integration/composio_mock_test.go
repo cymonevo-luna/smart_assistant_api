@@ -13,13 +13,16 @@ import (
 )
 
 const findFreeSlotsTool = "GOOGLECALENDAR_FIND_FREE_SLOTS"
+const createEventTool = "GOOGLECALENDAR_CREATE_EVENT"
 
 // mockComposio records execute calls and can be toggled to return HTTP 500.
 type mockComposio struct {
-	mu      sync.Mutex
-	server  *httptest.Server
-	fail    bool
-	lastReq map[string]any
+	mu             sync.Mutex
+	server         *httptest.Server
+	fail           bool
+	emptyFreeSlots bool
+	lastReq        map[string]any
+	requests       []map[string]any
 }
 
 func newMockComposio() *mockComposio {
@@ -38,6 +41,19 @@ func (m *mockComposio) SetFail(v bool) {
 	m.fail = v
 }
 
+func (m *mockComposio) SetEmptyFreeSlots(v bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.emptyFreeSlots = v
+}
+
+func (m *mockComposio) ResetRequests() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.requests = nil
+	m.lastReq = nil
+}
+
 func (m *mockComposio) LastRequest() map[string]any {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -51,14 +67,31 @@ func (m *mockComposio) LastRequest() map[string]any {
 	return out
 }
 
+func (m *mockComposio) ToolCallCount(tool string) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	count := 0
+	for _, req := range m.requests {
+		if slug, _ := req["slug"].(string); slug == tool {
+			count++
+		}
+	}
+	return count
+}
+
 func (m *mockComposio) handle(w http.ResponseWriter, r *http.Request) {
 	body, _ := io.ReadAll(r.Body)
 	var req map[string]any
 	_ = json.Unmarshal(body, &req)
 
+	slug := strings.TrimPrefix(r.URL.Path, "/api/v3/tools/execute/")
+	req["slug"] = slug
+
 	m.mu.Lock()
 	m.lastReq = req
+	m.requests = append(m.requests, req)
 	fail := m.fail
+	emptyFreeSlots := m.emptyFreeSlots
 	m.mu.Unlock()
 
 	if fail {
@@ -67,8 +100,11 @@ func (m *mockComposio) handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	slug := strings.TrimPrefix(r.URL.Path, "/api/v3/tools/execute/")
 	if slug == findFreeSlotsTool {
+		if emptyFreeSlots {
+			m.writeEmptyFreeSlotsResponse(w)
+			return
+		}
 		m.writeFindFreeSlotsResponse(w)
 		return
 	}
@@ -105,6 +141,18 @@ func (m *mockComposio) writeFindFreeSlotsResponse(w http.ResponseWriter) {
 				"end":   end.Format(time.RFC3339),
 			},
 		},
+	})
+	resp, _ := json.Marshal(map[string]any{
+		"successful": true,
+		"data":       json.RawMessage(payload),
+	})
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(resp)
+}
+
+func (m *mockComposio) writeEmptyFreeSlotsResponse(w http.ResponseWriter) {
+	payload, _ := json.Marshal(map[string]any{
+		"free_slots": []map[string]string{},
 	})
 	resp, _ := json.Marshal(map[string]any{
 		"successful": true,

@@ -6,6 +6,7 @@ import (
 
 	"github.com/cymonevo/go_template/internal/domain/assistant/builtin"
 	assistantsettings "github.com/cymonevo/go_template/internal/domain/assistant_settings"
+	"github.com/cymonevo/go_template/internal/domain/calendar/availability"
 	"github.com/cymonevo/go_template/internal/domain/plugin"
 	"github.com/cymonevo/go_template/internal/domain/reminder"
 	"github.com/cymonevo/go_template/pkg/composio"
@@ -158,7 +159,7 @@ func mapBuiltinAdapterArgs(p *plugin.Plugin, args map[string]any) (map[string]an
 	}
 	switch adapter {
 	case builtin.AdapterGoogleCalendarMeet:
-		return builtin.MapGoogleCalendarMeetArgs(args, "UTC")
+		return builtin.MapGoogleCalendarMeetArgs(stripInternalArgs(args), availability.MeetingTimezone)
 	default:
 		return nil, fmt.Errorf("unsupported builtin adapter %q for plugin %q", adapter, p.Slug)
 	}

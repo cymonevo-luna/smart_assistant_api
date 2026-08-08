@@ -81,6 +81,32 @@ func TestConfirmationPromptIncludesAttendeeEmail(t *testing.T) {
 	}
 }
 
+func TestConfirmationPromptGoogleCalendarMeet(t *testing.T) {
+	got := confirmationPromptGoogleCalendarMeet(map[string]any{
+		"start_time":      "2026-08-14T14:00:00+07:00",
+		"attendee_names":  []string{"Kezia", "Albert"},
+		"attendee_emails": []string{"kezia@example.com", "albert@example.com"},
+	})
+	want := "Is Friday at 2 PM okay?"
+	if got != want {
+		t.Fatalf("confirmationPromptGoogleCalendarMeet() = %q, want %q", got, want)
+	}
+}
+
+func TestRecommendationIntentDetection(t *testing.T) {
+	for _, text := range []string{"find a time", "pick a time", "yes pick one", "suggest a time", "any time", "you pick"} {
+		if !isRecommendationIntent(text) {
+			t.Fatalf("expected recommendation intent for %q", text)
+		}
+	}
+	if isRecommendationIntent("Friday at 3 PM") {
+		t.Fatal("expected explicit datetime, not recommendation intent")
+	}
+	if !isExplicitDateTime("Friday at 3 PM") {
+		t.Fatal("expected Friday at 3 PM to be explicit datetime")
+	}
+}
+
 func TestConfirmationParsing(t *testing.T) {
 	if !isConfirmationYes("yes") || !isConfirmationYes("OK") {
 		t.Fatal("expected yes responses to be recognized")

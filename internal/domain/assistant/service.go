@@ -9,6 +9,7 @@ import (
 
 	"github.com/cymonevo/go_template/internal/domain/assistant/builtin"
 	assistantsettings "github.com/cymonevo/go_template/internal/domain/assistant_settings"
+	"github.com/cymonevo/go_template/internal/domain/calendar/availability"
 	"github.com/cymonevo/go_template/internal/domain/plugin"
 	userplugin "github.com/cymonevo/go_template/internal/domain/user_plugin"
 	"github.com/cymonevo/go_template/pkg/llm"
@@ -51,14 +52,15 @@ type pluginInstallState struct {
 
 // Service orchestrates assistant sessions and message processing.
 type Service struct {
-	sessions    SessionRepository
-	messages    MessageRepository
-	settings    *assistantsettings.Service
-	userPlugins userplugin.Repository
-	pluginRepo  plugin.Repository
-	classifier  llm.Classifier
-	executor    PluginExecutor
-	log         logger.Logger
+	sessions     SessionRepository
+	messages     MessageRepository
+	settings     *assistantsettings.Service
+	userPlugins  userplugin.Repository
+	pluginRepo   plugin.Repository
+	classifier   llm.Classifier
+	executor     PluginExecutor
+	availability availability.AvailabilityService
+	log          logger.Logger
 }
 
 // NewService constructs an assistant Service.
@@ -70,17 +72,19 @@ func NewService(
 	pluginRepo plugin.Repository,
 	classifier llm.Classifier,
 	executor PluginExecutor,
+	availabilitySvc availability.AvailabilityService,
 	log logger.Logger,
 ) *Service {
 	return &Service{
-		sessions:    sessions,
-		messages:    messages,
-		settings:    settings,
-		userPlugins: userPlugins,
-		pluginRepo:  pluginRepo,
-		classifier:  classifier,
-		executor:    executor,
-		log:         log,
+		sessions:     sessions,
+		messages:     messages,
+		settings:     settings,
+		userPlugins:  userPlugins,
+		pluginRepo:   pluginRepo,
+		classifier:   classifier,
+		executor:     executor,
+		availability: availabilitySvc,
+		log:          log,
 	}
 }
 
@@ -235,6 +239,9 @@ func (s *Service) handlePendingAction(ctx context.Context, userID string, sessio
 		if pending.Arguments == nil {
 			pending.Arguments = map[string]any{}
 		}
+		if isGoogleCalendarMeetPlugin(eligible.catalog) {
+			return s.handleGoogleCalendarMeetPending(ctx, userID, eligible, pending, text)
+		}
 		if isLocationReminderSlug(pending.PluginSlug) {
 			if applyLocationReminderFollowUp(pending.MissingArgument, text, pending.Arguments) {
 				pending.MissingArgument = ""
@@ -373,6 +380,10 @@ func (s *Service) advancePlugin(ctx context.Context, userID string, eligible eli
 		return s.executePlugin(ctx, userID, eligible, args)
 	}
 
+	if isGoogleCalendarMeetPlugin(eligible.catalog) {
+		return s.advanceGoogleCalendarMeet(ctx, userID, eligible, args, text)
+	}
+
 	if isLocationReminderPlugin(eligible.catalog) {
 		inferLocationReminderFromText(text, args)
 
@@ -463,7 +474,7 @@ func (s *Service) advancePlugin(ctx context.Context, userID string, eligible eli
 }
 
 func (s *Service) executePlugin(ctx context.Context, userID string, eligible eligiblePlugin, args map[string]any) (Reply, *PendingAction, SessionStatus, error) {
-	execArgs := cloneArgs(args)
+	execArgs := stripInternalArgs(cloneArgs(args))
 	execArgs["install_id"] = eligible.install.ID
 
 	result, err := s.executor.Execute(ctx, userID, eligible.catalog, execArgs)
