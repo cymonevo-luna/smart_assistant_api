@@ -27,10 +27,10 @@ fi
 compose_args() {
 	case "${1:-default}" in
 	host)
-		echo -f docker-compose.yml -f docker-compose.qa-local.yml
+		echo -f docker-compose.yml -f docker-compose.qa-oauth-mock.yml -f docker-compose.qa-local.yml
 		;;
 	*)
-		echo -f docker-compose.yml
+		echo -f docker-compose.yml -f docker-compose.qa-oauth-mock.yml
 		;;
 	esac
 }

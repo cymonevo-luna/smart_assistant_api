@@ -30,10 +30,10 @@ require_command() {
 compose_args() {
 	case "${1:-default}" in
 	host)
-		echo -f docker-compose.yml -f docker-compose.qa-local.yml
+		echo -f docker-compose.yml -f docker-compose.qa-oauth-mock.yml -f docker-compose.qa-local.yml
 		;;
 	*)
-		echo -f docker-compose.yml
+		echo -f docker-compose.yml -f docker-compose.qa-oauth-mock.yml
 		;;
 	esac
 }
@@ -65,7 +65,7 @@ start_stack() {
 	local compose_mode="$1"
 	echo ">> Starting api, postgres, and redis (mode: $compose_mode) ..."
 	# shellcheck disable=SC2046
-	if ! docker compose $(compose_args "$compose_mode") up -d --build api postgres redis; then
+	if ! docker compose $(compose_args "$compose_mode") up -d --build api postgres redis oauth-mock; then
 		die "docker compose up failed. Check Docker logs: docker compose $(compose_args "$compose_mode") logs"
 	fi
 }

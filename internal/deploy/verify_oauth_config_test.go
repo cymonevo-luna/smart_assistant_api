@@ -157,6 +157,63 @@ GOOGLE_OAUTH_REDIRECT_URL=http://jarvis-api.cymonevo.com/api/v1/plugins/oauth/go
 	}
 }
 
+func TestQALocalOAuthMockCompose_HasSmokeCredentials(t *testing.T) {
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("cannot resolve test file path")
+	}
+	repoRoot := filepath.Join(filepath.Dir(thisFile), "..", "..")
+	compose := filepath.Join(repoRoot, "docker-compose.qa-oauth-mock.yml")
+	data, err := os.ReadFile(compose)
+	if err != nil {
+		t.Fatalf("read docker-compose.qa-oauth-mock.yml: %v", err)
+	}
+	content := string(data)
+	for _, want := range []string{
+		"GOOGLE_OAUTH_CLIENT_ID: qa-smoke-client-id",
+		"GOOGLE_OAUTH_CLIENT_SECRET: qa-smoke-secret",
+		"GOOGLE_OAUTH_REDIRECT_URL: http://localhost:8080/api/v1/plugins/oauth/google/callback",
+		"GOOGLE_OAUTH_TOKEN_URL: http://oauth-mock:8080/token",
+		"oauth-mock:",
+		"18080:8080",
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("qa oauth mock compose must contain %q; file:\n%s", want, content)
+		}
+	}
+}
+
+func TestQALocalCompose_HostModeTokenURL(t *testing.T) {
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("cannot resolve test file path")
+	}
+	repoRoot := filepath.Join(filepath.Dir(thisFile), "..", "..")
+	compose := filepath.Join(repoRoot, "docker-compose.qa-local.yml")
+	data, err := os.ReadFile(compose)
+	if err != nil {
+		t.Fatalf("read docker-compose.qa-local.yml: %v", err)
+	}
+	content := string(data)
+	const want = "GOOGLE_OAUTH_TOKEN_URL: http://localhost:18080/token"
+	if !strings.Contains(content, want) {
+		t.Fatalf("host-network qa compose must override token URL; file:\n%s", content)
+	}
+}
+
+func TestVerifyOAuthConfig_PassQASmokeCredentials(t *testing.T) {
+	envFile := writeEnvFile(t, `GOOGLE_OAUTH_CLIENT_ID=qa-smoke-client-id
+GOOGLE_OAUTH_CLIENT_SECRET=qa-smoke-secret
+GOOGLE_OAUTH_REDIRECT_URL=http://localhost:8080/api/v1/plugins/oauth/google/callback
+`)
+	out, code := runVerifyOAuth(t, map[string]string{
+		"ENV_FILE": envFile,
+	})
+	if code != 0 {
+		t.Fatalf("expected exit 0, got %d; output:\n%s", code, out)
+	}
+}
+
 func TestVerifyOAuthConfig_EnvOverridesFile(t *testing.T) {
 	envFile := writeEnvFile(t, `GOOGLE_OAUTH_CLIENT_ID=file-client
 GOOGLE_OAUTH_CLIENT_SECRET=file-secret
