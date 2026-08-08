@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/cymonevo/go_template/internal/config"
+	"github.com/cymonevo/go_template/internal/domain/assistant"
 	"github.com/cymonevo/go_template/internal/domain/assistant_settings"
 	"github.com/cymonevo/go_template/internal/domain/plugin"
 	"github.com/cymonevo/go_template/internal/domain/user"
@@ -14,6 +15,8 @@ import (
 	"github.com/cymonevo/go_template/internal/infra/postgres"
 	"github.com/cymonevo/go_template/pkg/auth"
 	"github.com/cymonevo/go_template/pkg/cache"
+	"github.com/cymonevo/go_template/pkg/composio"
+	"github.com/cymonevo/go_template/pkg/llm"
 	"github.com/cymonevo/go_template/pkg/logger"
 	"github.com/cymonevo/go_template/pkg/queue"
 	"github.com/cymonevo/go_template/pkg/ratelimit"
@@ -43,6 +46,7 @@ type Container struct {
 
 	UserService              *user.Service
 	AssistantSettingsService *assistantsettings.Service
+	AssistantService         *assistant.Service
 	PluginService            *plugin.Service
 	UserPluginService        *userplugin.Service
 
@@ -77,7 +81,7 @@ func BuildContainer(ctx context.Context, cfg *config.Config, log logger.Logger) 
 	// The database backend is chosen here and ONLY here. The returned stores and
 	// transaction manager satisfy store.Store[T] and store.TxManager regardless
 	// of engine, so no repository/service/handler code is aware of the choice.
-	userStore, assistantSettingsStore, pluginStore, userPluginStore, err := c.buildStores(ctx)
+	userStore, assistantSettingsStore, pluginStore, userPluginStore, assistantSessionStore, assistantMessageStore, err := c.buildStores(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -95,6 +99,29 @@ func BuildContainer(ctx context.Context, cfg *config.Config, log logger.Logger) 
 
 	userPluginRepo := userplugin.NewRepository(userPluginStore)
 	c.UserPluginService = userplugin.NewService(userPluginRepo, pluginRepo, nil)
+
+	classifier := llm.NewClassifier(c.Cfg.LLM.Provider, c.Cfg.LLM.APIKey, c.Cfg.LLM.Model)
+	stubExecutor := assistant.NewStubExecutor(log)
+	var composioExec *assistant.ComposioExecutor
+	if c.Cfg.Composio.APIKey != "" {
+		composioClient := composio.New(composio.Config{APIKey: c.Cfg.Composio.APIKey})
+		composioExec = assistant.NewComposioExecutor(composioClient, log)
+		c.Log.Info("composio client ready")
+	}
+	executor := assistant.NewRoutingExecutor(composioExec, stubExecutor)
+
+	assistantSessionRepo := assistant.NewSessionRepository(assistantSessionStore)
+	assistantMessageRepo := assistant.NewMessageRepository(assistantMessageStore)
+	c.AssistantService = assistant.NewService(
+		assistantSessionRepo,
+		assistantMessageRepo,
+		c.AssistantSettingsService,
+		userPluginRepo,
+		pluginRepo,
+		classifier,
+		executor,
+		log,
+	)
 
 	c.registerJobs()
 	return c, nil
@@ -169,18 +196,22 @@ func (c *Container) buildStores(ctx context.Context) (
 	store.Store[assistantsettings.Settings],
 	store.Store[plugin.Plugin],
 	store.Store[userplugin.UserPlugin],
+	store.Store[assistant.Session],
+	store.Store[assistant.Message],
 	error,
 ) {
 	userSchema := store.Schema{Name: user.TableName, IDColumn: "id"}
 	settingsSchema := store.Schema{Name: assistantsettings.TableName, IDColumn: "user_id"}
 	pluginSchema := store.Schema{Name: plugin.TableName, IDColumn: "id"}
 	userPluginSchema := store.Schema{Name: userplugin.TableName, IDColumn: "id"}
+	sessionSchema := store.Schema{Name: assistant.TableNameSessions, IDColumn: "id"}
+	messageSchema := store.Schema{Name: assistant.TableNameMessages, IDColumn: "id"}
 
 	switch c.Cfg.Database.Driver {
 	case config.DriverPostgres:
 		pool, err := postgres.Connect(ctx, c.Cfg.Database)
 		if err != nil {
-			return nil, nil, nil, nil, err
+			return nil, nil, nil, nil, nil, nil, err
 		}
 		c.Log.Info("database ready", logger.String("driver", "postgres"))
 		c.TxManager = store.NewPostgresTxManager(pool)
@@ -189,12 +220,14 @@ func (c *Container) buildStores(ctx context.Context) (
 		return store.NewPostgresStore[user.User](pool, userSchema),
 			store.NewPostgresStore[assistantsettings.Settings](pool, settingsSchema),
 			store.NewPostgresStore[plugin.Plugin](pool, pluginSchema),
-			store.NewPostgresStore[userplugin.UserPlugin](pool, userPluginSchema), nil
+			store.NewPostgresStore[userplugin.UserPlugin](pool, userPluginSchema),
+			store.NewPostgresStore[assistant.Session](pool, sessionSchema),
+			store.NewPostgresStore[assistant.Message](pool, messageSchema), nil
 
 	case config.DriverMongo:
 		client, db, err := mongo.Connect(ctx, c.Cfg.Database)
 		if err != nil {
-			return nil, nil, nil, nil, err
+			return nil, nil, nil, nil, nil, nil, err
 		}
 		c.Log.Info("database ready", logger.String("driver", "mongo"))
 		c.TxManager = store.NewMongoTxManager(client)
@@ -203,10 +236,12 @@ func (c *Container) buildStores(ctx context.Context) (
 		return store.NewMongoStore[user.User](db, userSchema),
 			store.NewMongoStore[assistantsettings.Settings](db, settingsSchema),
 			store.NewMongoStore[plugin.Plugin](db, pluginSchema),
-			store.NewMongoStore[userplugin.UserPlugin](db, userPluginSchema), nil
+			store.NewMongoStore[userplugin.UserPlugin](db, userPluginSchema),
+			store.NewMongoStore[assistant.Session](db, sessionSchema),
+			store.NewMongoStore[assistant.Message](db, messageSchema), nil
 
 	default:
-		return nil, nil, nil, nil, fmt.Errorf("unsupported database driver %q", c.Cfg.Database.Driver)
+		return nil, nil, nil, nil, nil, nil, fmt.Errorf("unsupported database driver %q", c.Cfg.Database.Driver)
 	}
 }
 
