@@ -121,6 +121,9 @@ func buildRouter(cfg *config.Config, log logger.Logger, c *Container) http.Handl
 	userHandler := handler.NewUserHandler(c.UserService, c.Validator)
 	userHandler.Register(r, appmw.Auth(c.Tokens))
 
+	assistantSettingsHandler := handler.NewAssistantSettingsHandler(c.AssistantSettingsService, c.Validator)
+	assistantSettingsHandler.Register(r, appmw.Auth(c.Tokens))
+
 	// Admin-only routes live under /api/admin and require the admin role.
 	adminHandler := handler.NewAdminUserHandler(c.UserService)
 	adminHandler.Register(r, appmw.Auth(c.Tokens), appmw.RequireRole(auth.RoleAdmin))

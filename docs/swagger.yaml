@@ -1,5 +1,22 @@
 basePath: /
 definitions:
+  assistantsettings.Response:
+    properties:
+      active_listening_enabled:
+        type: boolean
+      updated_at:
+        type: string
+      wake_word:
+        type: string
+    type: object
+  assistantsettings.UpdateInput:
+    properties:
+      active_listening_enabled:
+        type: boolean
+      wake_word:
+        maxLength: 32
+        type: string
+    type: object
   auth.Role:
     enum:
     - user
@@ -195,6 +212,64 @@ paths:
       summary: Get any user by ID (admin only)
       tags:
       - admin
+  /api/v1/assistant/settings:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/assistantsettings.Response'
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+      - BearerAuth: []
+      summary: Get assistant settings
+      tags:
+      - assistant
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Settings payload
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/assistantsettings.UpdateInput'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/assistantsettings.Response'
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+      - BearerAuth: []
+      summary: Update assistant settings
+      tags:
+      - assistant
   /api/v1/auth/login:
     post:
       consumes:

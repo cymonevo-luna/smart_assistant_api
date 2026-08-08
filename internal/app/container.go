@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/cymonevo/go_template/internal/config"
+	"github.com/cymonevo/go_template/internal/domain/assistant_settings"
 	"github.com/cymonevo/go_template/internal/domain/user"
 	"github.com/cymonevo/go_template/internal/handler"
 	"github.com/cymonevo/go_template/internal/infra/mongo"
@@ -38,7 +39,8 @@ type Container struct {
 	TxManager   store.TxManager
 	Scheduler   *worker.Scheduler
 
-	UserService *user.Service
+	UserService              *user.Service
+	AssistantSettingsService *assistantsettings.Service
 
 	redisClient *redis.Client
 	pingers     map[string]handler.Pinger
@@ -72,7 +74,7 @@ func BuildContainer(ctx context.Context, cfg *config.Config, log logger.Logger) 
 	// transaction manager satisfy store.Store[user.User] and store.TxManager
 	// regardless of engine, so no repository/service/handler code is aware of
 	// the choice.
-	userStore, err := c.buildUserStore(ctx)
+	userStore, assistantSettingsStore, err := c.buildStores(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -80,6 +82,9 @@ func BuildContainer(ctx context.Context, cfg *config.Config, log logger.Logger) 
 	userRepo := user.NewRepository(userStore)
 	userCache := cache.NewTyped[user.User](c.Cache, cfg.Cache.TTL)
 	c.UserService = user.NewService(userRepo, userCache, c.TxManager, c.Queue, c.Tokens, log)
+
+	assistantSettingsRepo := assistantsettings.NewRepository(assistantSettingsStore)
+	c.AssistantSettingsService = assistantsettings.NewService(assistantSettingsRepo)
 
 	c.registerJobs()
 	return c, nil
@@ -147,36 +152,39 @@ func (c *Container) buildRateLimiter() {
 	c.Log.Info("rate limiter ready", logger.String("driver", "memory"))
 }
 
-// buildUserStore is the single switch point between databases. It also builds
-// the matching transaction manager.
-func (c *Container) buildUserStore(ctx context.Context) (store.Store[user.User], error) {
-	schema := store.Schema{Name: user.TableName, IDColumn: "id"}
+// buildStores is the single switch point between databases. It also builds the
+// matching transaction manager and all entity stores from one connection.
+func (c *Container) buildStores(ctx context.Context) (store.Store[user.User], store.Store[assistantsettings.Settings], error) {
+	userSchema := store.Schema{Name: user.TableName, IDColumn: "id"}
+	settingsSchema := store.Schema{Name: assistantsettings.TableName, IDColumn: "user_id"}
 
 	switch c.Cfg.Database.Driver {
 	case config.DriverPostgres:
 		pool, err := postgres.Connect(ctx, c.Cfg.Database)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		c.Log.Info("database ready", logger.String("driver", "postgres"))
 		c.TxManager = store.NewPostgresTxManager(pool)
 		c.pingers["postgres"] = pingerFunc(func(ctx context.Context) error { return pool.Ping(ctx) })
 		c.closers = append(c.closers, func(context.Context) error { pool.Close(); return nil })
-		return store.NewPostgresStore[user.User](pool, schema), nil
+		return store.NewPostgresStore[user.User](pool, userSchema),
+			store.NewPostgresStore[assistantsettings.Settings](pool, settingsSchema), nil
 
 	case config.DriverMongo:
 		client, db, err := mongo.Connect(ctx, c.Cfg.Database)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		c.Log.Info("database ready", logger.String("driver", "mongo"))
 		c.TxManager = store.NewMongoTxManager(client)
 		c.pingers["mongo"] = pingerFunc(func(ctx context.Context) error { return client.Ping(ctx, nil) })
 		c.closers = append(c.closers, func(ctx context.Context) error { return disconnectMongo(ctx, client) })
-		return store.NewMongoStore[user.User](db, schema), nil
+		return store.NewMongoStore[user.User](db, userSchema),
+			store.NewMongoStore[assistantsettings.Settings](db, settingsSchema), nil
 
 	default:
-		return nil, fmt.Errorf("unsupported database driver %q", c.Cfg.Database.Driver)
+		return nil, nil, fmt.Errorf("unsupported database driver %q", c.Cfg.Database.Driver)
 	}
 }
 
