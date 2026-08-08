@@ -1,0 +1,10 @@
+# QA-local override: API uses host networking so it can reach postgres/redis via
+# published localhost ports. Some Docker environments block container-to-container
+# traffic while host port publishing still works (common in nested VMs).
+services:
+  api:
+    network_mode: host
+    ports: []
+    environment:
+      DB_URI: postgres://postgres:postgres@localhost:5432/go_template?sslmode=disable
+      REDIS_ADDR: localhost:6379
