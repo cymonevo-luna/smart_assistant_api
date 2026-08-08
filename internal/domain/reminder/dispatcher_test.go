@@ -16,20 +16,8 @@ func TestDispatchMarksDueRemindersNotified(t *testing.T) {
 
 	pastID := "past-1"
 	futureID := "future-1"
-	repo.items[pastID] = &Reminder{
-		ID:       pastID,
-		UserID:   "user-1",
-		Message:  "call mom",
-		RemindAt: now.Add(-time.Minute),
-		Status:   StatusPending,
-	}
-	repo.items[futureID] = &Reminder{
-		ID:       futureID,
-		UserID:   "user-1",
-		Message:  "later",
-		RemindAt: now.Add(time.Hour),
-		Status:   StatusPending,
-	}
+	repo.items[pastID] = timeReminder(pastID, "user-1", "call mom", now.Add(-time.Minute), StatusPending)
+	repo.items[futureID] = timeReminder(futureID, "user-1", "later", now.Add(time.Hour), StatusPending)
 
 	log, err := logger.New("error", false)
 	if err != nil {
@@ -59,27 +47,9 @@ func TestDispatchContinuesOnIndividualErrors(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC()
 
-	repo.items["due-1"] = &Reminder{
-		ID:       "due-1",
-		UserID:   "user-1",
-		Message:  "one",
-		RemindAt: now.Add(-time.Minute),
-		Status:   StatusPending,
-	}
-	repo.items["already-notified"] = &Reminder{
-		ID:       "already-notified",
-		UserID:   "user-1",
-		Message:  "two",
-		RemindAt: now.Add(-2 * time.Minute),
-		Status:   StatusNotified,
-	}
-	repo.items["due-2"] = &Reminder{
-		ID:       "due-2",
-		UserID:   "user-1",
-		Message:  "three",
-		RemindAt: now.Add(-30 * time.Second),
-		Status:   StatusPending,
-	}
+	repo.items["due-1"] = timeReminder("due-1", "user-1", "one", now.Add(-time.Minute), StatusPending)
+	repo.items["already-notified"] = timeReminder("already-notified", "user-1", "two", now.Add(-2*time.Minute), StatusNotified)
+	repo.items["due-2"] = timeReminder("due-2", "user-1", "three", now.Add(-30*time.Second), StatusPending)
 
 	log, err := logger.New("error", false)
 	if err != nil {
@@ -102,13 +72,7 @@ func TestService_FindDueAndMarkNotified(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC()
 
-	repo.items["due"] = &Reminder{
-		ID:       "due",
-		UserID:   "user-1",
-		Message:  "due",
-		RemindAt: now.Add(-time.Minute),
-		Status:   StatusPending,
-	}
+	repo.items["due"] = timeReminder("due", "user-1", "due", now.Add(-time.Minute), StatusPending)
 
 	due, err := svc.FindDue(ctx, now)
 	if err != nil {
@@ -140,31 +104,13 @@ func TestService_ListPendingDeliveryAndMarkDelivered(t *testing.T) {
 	now := time.Now().UTC()
 	notifiedAt := now.Add(-time.Minute)
 
-	repo.items["pending-delivery"] = &Reminder{
-		ID:         "pending-delivery",
-		UserID:     "user-1",
-		Message:    "notify me",
-		RemindAt:   now.Add(-2 * time.Minute),
-		Status:     StatusNotified,
-		NotifiedAt: &notifiedAt,
-	}
-	repo.items["delivered"] = &Reminder{
-		ID:          "delivered",
-		UserID:      "user-1",
-		Message:     "done",
-		RemindAt:    now.Add(-3 * time.Minute),
-		Status:      StatusNotified,
-		NotifiedAt:  &notifiedAt,
-		DeliveredAt: &now,
-	}
-	repo.items["other-user"] = &Reminder{
-		ID:         "other-user",
-		UserID:     "user-2",
-		Message:    "not mine",
-		RemindAt:   now.Add(-time.Minute),
-		Status:     StatusNotified,
-		NotifiedAt: &notifiedAt,
-	}
+	repo.items["pending-delivery"] = timeReminder("pending-delivery", "user-1", "notify me", now.Add(-2*time.Minute), StatusNotified)
+	repo.items["pending-delivery"].NotifiedAt = &notifiedAt
+	repo.items["delivered"] = timeReminder("delivered", "user-1", "done", now.Add(-3*time.Minute), StatusNotified)
+	repo.items["delivered"].NotifiedAt = &notifiedAt
+	repo.items["delivered"].DeliveredAt = &now
+	repo.items["other-user"] = timeReminder("other-user", "user-2", "not mine", now.Add(-time.Minute), StatusNotified)
+	repo.items["other-user"].NotifiedAt = &notifiedAt
 
 	items, err := svc.ListPendingDelivery(ctx, "user-1")
 	if err != nil {

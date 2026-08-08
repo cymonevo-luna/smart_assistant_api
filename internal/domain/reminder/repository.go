@@ -16,6 +16,7 @@ type Repository interface {
 	FindPendingByUserAndMessage(ctx context.Context, userID, messageQuery string) ([]Reminder, error)
 	FindPendingDeliveryByUser(ctx context.Context, userID string) ([]Reminder, error)
 	CancelPendingForUserPlugin(ctx context.Context, userID, userPluginID string) error
+	FindByUserAndStatus(ctx context.Context, userID, status string) ([]Reminder, error)
 }
 
 type repository struct {
@@ -27,19 +28,21 @@ func NewRepository(s store.Store[Reminder]) Repository {
 	return &repository{Store: s}
 }
 
-// FindDue returns pending reminders due on or before the given instant (UTC).
+// FindDue returns pending time reminders due on or before the given instant (UTC).
 func (r *repository) FindDue(ctx context.Context, before time.Time) ([]Reminder, error) {
 	return r.Find(ctx, store.NewQuery().
+		Eq("trigger_type", TriggerTypeTime).
 		Eq("status", StatusPending).
 		Lte("remind_at", before.UTC()).
 		OrderBy("remind_at", false))
 }
 
-// FindActiveByUser returns pending and notified reminders for a user, optionally
+// FindActiveByUser returns pending and notified time reminders for a user, optionally
 // scoped to today or tomorrow in UTC.
 func (r *repository) FindActiveByUser(ctx context.Context, userID string, filter ListFilter) ([]Reminder, error) {
 	q := store.NewQuery().
 		Eq("user_id", userID).
+		Eq("trigger_type", TriggerTypeTime).
 		In("status", []string{StatusPending, StatusNotified}).
 		OrderBy("remind_at", false)
 
@@ -59,21 +62,23 @@ func (r *repository) FindActiveByUser(ctx context.Context, userID string, filter
 	return r.Find(ctx, q)
 }
 
-// FindPendingByUserAndMessage returns pending reminders whose message contains
+// FindPendingByUserAndMessage returns pending time reminders whose message contains
 // messageQuery (case-insensitive substring).
 func (r *repository) FindPendingByUserAndMessage(ctx context.Context, userID, messageQuery string) ([]Reminder, error) {
 	pattern := "%" + strings.TrimSpace(messageQuery) + "%"
 	return r.Find(ctx, store.NewQuery().
 		Eq("user_id", userID).
+		Eq("trigger_type", TriggerTypeTime).
 		Eq("status", StatusPending).
 		Like("message", pattern).
 		OrderBy("remind_at", false))
 }
 
-// FindPendingDeliveryByUser returns notified reminders awaiting client delivery ack.
+// FindPendingDeliveryByUser returns notified time reminders awaiting client delivery ack.
 func (r *repository) FindPendingDeliveryByUser(ctx context.Context, userID string) ([]Reminder, error) {
 	items, err := r.Find(ctx, store.NewQuery().
 		Eq("user_id", userID).
+		Eq("trigger_type", TriggerTypeTime).
 		Eq("status", StatusNotified).
 		OrderBy("remind_at", false))
 	if err != nil {
@@ -89,10 +94,11 @@ func (r *repository) FindPendingDeliveryByUser(ctx context.Context, userID strin
 	return out, nil
 }
 
-// CancelPendingForUserPlugin marks pending reminders for a plugin install as cancelled.
+// CancelPendingForUserPlugin marks pending time reminders for a plugin install as cancelled.
 func (r *repository) CancelPendingForUserPlugin(ctx context.Context, userID, userPluginID string) error {
 	items, err := r.Find(ctx, store.NewQuery().
 		Eq("user_id", userID).
+		Eq("trigger_type", TriggerTypeTime).
 		Eq("user_plugin_id", userPluginID).
 		Eq("status", StatusPending))
 	if err != nil {
@@ -108,6 +114,15 @@ func (r *repository) CancelPendingForUserPlugin(ctx context.Context, userID, use
 		}
 	}
 	return nil
+}
+
+// FindByUserAndStatus returns location reminders for a user filtered by status.
+func (r *repository) FindByUserAndStatus(ctx context.Context, userID, status string) ([]Reminder, error) {
+	return r.Find(ctx, store.NewQuery().
+		Eq("user_id", userID).
+		Eq("trigger_type", TriggerTypeLocation).
+		Eq("status", status).
+		OrderBy("created_at", true))
 }
 
 func utcDayBounds(day time.Time) (start, end time.Time) {

@@ -63,7 +63,7 @@ func executeReminderCreate(ctx context.Context, svc *reminder.Service, userID, i
 	}
 
 	return map[string]any{
-		"reply_text":  fmt.Sprintf("Reminder set for %s: %s", formatReminderTime(created.RemindAt), message),
+		"reply_text":  fmt.Sprintf("Reminder set for %s: %s", formatReminderTime(*created.RemindAt), message),
 		"reminder_id": created.ID,
 	}, nil
 }
@@ -110,7 +110,7 @@ func formatReminderList(items []reminder.Reminder, filter reminder.ListFilter) s
 		if i > 0 {
 			b.WriteByte('\n')
 		}
-		fmt.Fprintf(&b, "%d. %s at %s", i+1, items[i].Message, formatReminderTime(items[i].RemindAt))
+		fmt.Fprintf(&b, "%d. %s at %s", i+1, items[i].Message, formatReminderTime(*items[i].RemindAt))
 	}
 	return b.String()
 }

@@ -1,0 +1,11 @@
+[
+  {
+    "createIndexes": "reminders",
+    "indexes": [
+      {
+        "key": { "user_id": 1, "status": 1 },
+        "name": "idx_user_id_status"
+      }
+    ]
+  }
+]
