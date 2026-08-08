@@ -5,6 +5,10 @@
 # http://127.0.0.1:8791, ensures the proxied CNAME exists, installs cloudflared
 # when missing, and enables a systemd connector unit on the deploy host.
 #
+# The cloudflared connector MUST run on the same machine as the API compose
+# stack (smart_assistant_api_compose.service) because the tunnel origin targets
+# 127.0.0.1:8791 on that host.
+#
 # Usage (from repo root):
 #   scripts/configure-cloudflare-tunnel.sh
 #
@@ -18,6 +22,7 @@
 #   CLOUDFLARE_TUNNEL_HOSTNAME     (default: jarvis-api.cymonevo.com)
 #   CLOUDFLARE_TUNNEL_ORIGIN       (default: http://127.0.0.1:8791)
 #   CLOUDFLARE_TUNNEL_SERVICE       (default: smart_assistant_api_cloudflared.service)
+#   CLOUDFLARE_TUNNEL_AFTER_SERVICE (default: smart_assistant_api_compose.service)
 #   CONFIGURE_TUNNEL_SKIP_INSTALL=1 skip cloudflared/systemd install (tests)
 #   CONFIGURE_TUNNEL_CF_API         override Cloudflare API base URL (tests)
 #   CONFIGURE_TUNNEL_CMD            override the whole configure body (tests)
@@ -31,6 +36,7 @@ TUNNEL_NAME="${CLOUDFLARE_TUNNEL_NAME:-smart_assistant_api-staging}"
 TUNNEL_HOSTNAME="${CLOUDFLARE_TUNNEL_HOSTNAME:-jarvis-api.cymonevo.com}"
 TUNNEL_ORIGIN="${CLOUDFLARE_TUNNEL_ORIGIN:-http://127.0.0.1:8791}"
 TUNNEL_SERVICE="${CLOUDFLARE_TUNNEL_SERVICE:-smart_assistant_api_cloudflared.service}"
+TUNNEL_AFTER_SERVICE="${CLOUDFLARE_TUNNEL_AFTER_SERVICE:-smart_assistant_api_compose.service}"
 CF_API="${CONFIGURE_TUNNEL_CF_API:-https://api.cloudflare.com/client/v4}"
 
 die() {
@@ -208,8 +214,8 @@ install_connector_service() {
 	as_root tee "$unit_path" >/dev/null <<-EOF
 		[Unit]
 		Description=Cloudflare Tunnel for $TUNNEL_HOSTNAME
-		After=network-online.target
-		Wants=network-online.target
+		After=network-online.target $TUNNEL_AFTER_SERVICE
+		Wants=network-online.target $TUNNEL_AFTER_SERVICE
 
 		[Service]
 		Type=simple
