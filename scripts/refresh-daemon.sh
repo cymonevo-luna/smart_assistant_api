@@ -153,4 +153,28 @@ if [ "$HAS_MIGRATE" -eq 1 ] && [ -x "$VERIFY_MIGRATIONS" ]; then
 		"$VERIFY_MIGRATIONS" "${VERIFY_MIGRATIONS_MIN_VERSION:-0}"
 fi
 
+CONFIGURE_TUNNEL="$SCRIPT_DIR/configure-cloudflare-tunnel.sh"
+if [ -x "$CONFIGURE_TUNNEL" ]; then
+	has_cloudflare=0
+	if [ -n "${CLOUDFLARE_API_TOKEN:-}" ] && [ -n "${CLOUDFLARE_ACCOUNT_ID:-}" ] && [ -n "${CLOUDFLARE_ZONE_ID:-}" ]; then
+		has_cloudflare=1
+	elif [ -f "$DEPLOY_DIR/.env" ]; then
+		if grep -Eq '^CLOUDFLARE_API_TOKEN=.+' "$DEPLOY_DIR/.env" 2>/dev/null \
+			&& grep -Eq '^CLOUDFLARE_ACCOUNT_ID=.+' "$DEPLOY_DIR/.env" 2>/dev/null \
+			&& grep -Eq '^CLOUDFLARE_ZONE_ID=.+' "$DEPLOY_DIR/.env" 2>/dev/null; then
+			has_cloudflare=1
+		fi
+	fi
+	if [ "$has_cloudflare" -eq 1 ]; then
+		echo ">> Configuring Cloudflare Tunnel for staging API ..."
+		ENV_FILE="$DEPLOY_DIR/.env" "$CONFIGURE_TUNNEL"
+	fi
+fi
+
+VERIFY_TUNNEL="$SCRIPT_DIR/verify-tunnel-dns.sh"
+if [ -x "$VERIFY_TUNNEL" ] && [ "${VERIFY_TUNNEL_AFTER_DEPLOY:-}" = "1" ]; then
+	echo ">> Verifying staging tunnel/DNS ..."
+	"$VERIFY_TUNNEL"
+fi
+
 echo ">> Done."
