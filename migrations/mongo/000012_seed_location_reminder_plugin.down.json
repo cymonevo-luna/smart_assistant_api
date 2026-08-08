@@ -1,0 +1,11 @@
+[
+  {
+    "delete": "plugins",
+    "deletes": [
+      {
+        "q": { "slug": "set-reminder" },
+        "limit": 1
+      }
+    ]
+  }
+]

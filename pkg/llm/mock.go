@@ -45,6 +45,11 @@ func (m *MockClassifier) Classify(_ context.Context, req ClassifyRequest) (*Clas
 func defaultMockClassify(req ClassifyRequest) *ClassifyResult {
 	lower := strings.ToLower(req.Text)
 	for _, p := range req.Plugins {
+		if result := matchLocationReminderIntent(lower, p); result != nil {
+			return result
+		}
+	}
+	for _, p := range req.Plugins {
 		if result := matchReminderIntent(lower, p); result != nil {
 			return result
 		}
@@ -75,6 +80,119 @@ func defaultMockClassify(req ClassifyRequest) *ClassifyResult {
 		}
 	}
 	return &ClassifyResult{Matched: false}
+}
+
+func matchLocationReminderIntent(lower string, p PluginCandidate) *ClassifyResult {
+	isLocationPlugin := p.Slug == "set-reminder"
+	for _, trigger := range p.Triggers {
+		triggerLower := strings.ToLower(trigger)
+		if strings.Contains(lower, triggerLower) {
+			isLocationPlugin = true
+			break
+		}
+	}
+	if !isLocationPlugin {
+		return nil
+	}
+
+	if strings.Contains(lower, "nearby") || strings.Contains(lower, "alfamart") {
+		return &ClassifyResult{
+			Matched:    true,
+			PluginSlug: p.Slug,
+			Arguments: map[string]any{
+				"place_query":   lower,
+				"location_mode": "place_keyword",
+			},
+		}
+	}
+
+	if strings.Contains(lower, "pick my printer") && (strings.Contains(lower, "once i") || strings.Contains(lower, "got home")) {
+		return &ClassifyResult{
+			Matched:    true,
+			PluginSlug: p.Slug,
+			Arguments: map[string]any{
+				"title":         "pick my printer",
+				"location_mode": "exact",
+				"place_query":   "home",
+			},
+		}
+	}
+
+	if strings.Contains(lower, "buy candy") {
+		return &ClassifyResult{
+			Matched:    true,
+			PluginSlug: p.Slug,
+			Arguments: map[string]any{
+				"title": "buy candy",
+			},
+		}
+	}
+
+	if strings.Contains(lower, "remind me to ") && !reminderTextHasTime(lower) {
+		title := extractLocationReminderTitle(lower)
+		if title != "" {
+			args := map[string]any{"title": title}
+			if strings.Contains(lower, "once i") || strings.Contains(lower, "when i get") || strings.Contains(lower, "when i arrive") {
+				args["location_mode"] = "exact"
+				if place := extractLocationPlaceFromTrigger(lower); place != "" {
+					args["place_query"] = place
+				}
+			}
+			return &ClassifyResult{Matched: true, PluginSlug: p.Slug, Arguments: args}
+		}
+	}
+
+	return nil
+}
+
+func reminderTextHasTime(lower string) bool {
+	if strings.Contains(lower, " at ") {
+		return true
+	}
+	for _, token := range []string{"am", "pm", "1pm", "2pm", "3pm", "today", "tomorrow"} {
+		if strings.Contains(lower, token) {
+			return true
+		}
+	}
+	return false
+}
+
+func extractLocationReminderTitle(lower string) string {
+	for _, prefix := range []string{
+		"remind me to ",
+		"remind me when i arrive to ",
+		"remind me when i get to ",
+		"remind me once i got ",
+		"remind me once i ",
+		"set a location reminder to ",
+	} {
+		if idx := strings.Index(lower, prefix); idx >= 0 {
+			rest := strings.TrimSpace(lower[idx+len(prefix):])
+			for _, cut := range []string{" once i", " when i", " at "} {
+				if at := strings.Index(rest, cut); at >= 0 {
+					rest = strings.TrimSpace(rest[:at])
+				}
+			}
+			return rest
+		}
+	}
+	return ""
+}
+
+func extractLocationPlaceFromTrigger(lower string) string {
+	for _, prefix := range []string{
+		"once i got ",
+		"once i ",
+		"when i get to ",
+		"when i get ",
+		"when i arrive at ",
+		"when i arrive ",
+	} {
+		if idx := strings.Index(lower, prefix); idx >= 0 {
+			return strings.TrimSpace(lower[idx+len(prefix):])
+		}
+	}
+	return ""
 }
 
 func matchReminderIntent(lower string, p PluginCandidate) *ClassifyResult {

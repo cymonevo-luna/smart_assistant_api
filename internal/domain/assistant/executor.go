@@ -5,10 +5,12 @@ import (
 	"fmt"
 
 	"github.com/cymonevo/go_template/internal/domain/assistant/builtin"
+	assistantsettings "github.com/cymonevo/go_template/internal/domain/assistant_settings"
 	"github.com/cymonevo/go_template/internal/domain/plugin"
 	"github.com/cymonevo/go_template/internal/domain/reminder"
 	"github.com/cymonevo/go_template/pkg/composio"
 	"github.com/cymonevo/go_template/pkg/logger"
+	"github.com/cymonevo/go_template/pkg/places"
 )
 
 // PluginExecutor runs a matched plugin action server-side.
@@ -77,12 +79,24 @@ func (e *ComposioExecutor) Execute(ctx context.Context, userID string, p *plugin
 // BuiltinExecutor executes builtin-type plugin manifests.
 type BuiltinExecutor struct {
 	reminders *reminder.Service
+	settings  *assistantsettings.Service
+	places    places.Provider
 	log       logger.Logger
 }
 
 // NewBuiltinExecutor constructs a BuiltinExecutor.
-func NewBuiltinExecutor(reminders *reminder.Service, log logger.Logger) *BuiltinExecutor {
-	return &BuiltinExecutor{reminders: reminders, log: log}
+func NewBuiltinExecutor(
+	reminders *reminder.Service,
+	settings *assistantsettings.Service,
+	placesProvider places.Provider,
+	log logger.Logger,
+) *BuiltinExecutor {
+	return &BuiltinExecutor{
+		reminders: reminders,
+		settings:  settings,
+		places:    placesProvider,
+		log:       log,
+	}
 }
 
 // Execute dispatches to the configured builtin adapter.
@@ -96,6 +110,8 @@ func (e *BuiltinExecutor) Execute(ctx context.Context, userID string, p *plugin.
 		switch p.Slug {
 		case builtin.ReminderSlug:
 			adapter = builtin.AdapterReminder
+		case builtin.LocationReminderSlug:
+			adapter = builtin.AdapterLocationReminder
 		default:
 			return nil, fmt.Errorf("builtin adapter not configured for plugin %q", p.Slug)
 		}
@@ -105,6 +121,8 @@ func (e *BuiltinExecutor) Execute(ctx context.Context, userID string, p *plugin.
 	case builtin.AdapterReminder:
 		installID, _ := args["install_id"].(string)
 		return builtin.ExecuteReminder(ctx, e.reminders, userID, installID, args)
+	case builtin.AdapterLocationReminder:
+		return builtin.ExecuteLocationReminder(ctx, e.reminders, e.settings, e.places, userID, args)
 	default:
 		return nil, fmt.Errorf("unsupported builtin adapter %q for plugin %q", adapter, p.Slug)
 	}
