@@ -5,7 +5,7 @@
 # Prerequisites:
 #   - Local QA stack is running (scripts/qa-local-up.sh completed successfully)
 #   - API is healthy at http://localhost:8080/healthz
-#   - Database migrations 000009–000011 are applied
+#   - Database migrations 000009–000013 are applied (reminders table, threshold, both plugin seeds)
 #
 # Usage (from repo root):
 #   scripts/qa-seed-reminder-notification.sh
@@ -104,7 +104,7 @@ SQL
 	# shellcheck disable=SC2046
 	if ! printf '%s\n' "$sql" | docker compose $(compose_args "$COMPOSE_MODE") exec -T postgres \
 		psql -U postgres -d smart_assistant_api -v ON_ERROR_STOP=1; then
-		die "failed to seed reminder in postgres (are migrations 000009-000011 applied?)"
+		die "failed to seed reminder in postgres (are migrations 000009-000013 applied?)"
 	fi
 }
 
