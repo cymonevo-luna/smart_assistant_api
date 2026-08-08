@@ -10,16 +10,8 @@
         "name": "idx_user_id"
       },
       {
-        "key": { "remind_at": 1 },
-        "name": "idx_remind_at"
-      },
-      {
-        "key": { "user_id": 1, "remind_at": 1 },
-        "name": "idx_user_id_remind_at"
-      },
-      {
-        "key": { "status": 1, "remind_at": 1 },
-        "name": "idx_status_remind_at"
+        "key": { "user_id": 1, "status": 1 },
+        "name": "idx_user_id_status"
       }
     ]
   }
