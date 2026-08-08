@@ -190,3 +190,40 @@ func TestVerifyTunnelDNS_ReadyMissingDependency(t *testing.T) {
 		t.Fatalf("expected redis failure, got:\n%s", out)
 	}
 }
+
+func TestRefreshDaemon_VerifiesTunnelAfterConfigure(t *testing.T) {
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("cannot resolve test file path")
+	}
+	repoRoot := filepath.Join(filepath.Dir(thisFile), "..", "..")
+	script := filepath.Join(repoRoot, "scripts", "refresh-daemon.sh")
+	data, err := os.ReadFile(script)
+	if err != nil {
+		t.Fatalf("read refresh-daemon.sh: %v", err)
+	}
+	content := string(data)
+	if !strings.Contains(content, "configured_tunnel=0") {
+		t.Fatalf("refresh-daemon.sh must track tunnel configuration; script:\n%s", content)
+	}
+	if !strings.Contains(content, `configured_tunnel" -eq 1 ] || [ "${VERIFY_TUNNEL_AFTER_DEPLOY:-}" = "1" ]`) {
+		t.Fatalf("refresh-daemon.sh must verify tunnel after configure; script:\n%s", content)
+	}
+	if !strings.Contains(content, "verify-tunnel-dns.sh") {
+		t.Fatalf("refresh-daemon.sh must invoke verify-tunnel-dns.sh; script:\n%s", content)
+	}
+}
+
+func TestConfigureCloudflareTunnel_SameHostDependency(t *testing.T) {
+	data, err := os.ReadFile(configureCloudflareTunnelScript(t))
+	if err != nil {
+		t.Fatalf("read configure-cloudflare-tunnel.sh: %v", err)
+	}
+	content := string(data)
+	if !strings.Contains(content, "smart_assistant_api_compose.service") {
+		t.Fatalf("configure script must document/require API compose service on same host; script:\n%s", content)
+	}
+	if !strings.Contains(content, "After=network-online.target $TUNNEL_AFTER_SERVICE") {
+		t.Fatalf("cloudflared unit must start after API compose service; script:\n%s", content)
+	}
+}
