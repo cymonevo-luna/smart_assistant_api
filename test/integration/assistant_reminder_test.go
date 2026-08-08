@@ -147,19 +147,12 @@ func TestAssistantCreateReminderWithConfirmation(t *testing.T) {
 		t.Fatalf("expected success reply to mention water plants, got %q", turn2.Reply.Text)
 	}
 
-	items, err := application.Container().ReminderService.List(context.Background(), userID, reminder.ListFilterAll)
+	items, err := application.Container().ReminderRepo.FindPendingByUserAndMessage(context.Background(), userID, "water plants")
 	if err != nil {
-		t.Fatalf("list reminders: %v", err)
+		t.Fatalf("find pending reminders: %v", err)
 	}
-	found := false
-	for _, item := range items {
-		if strings.Contains(item.Message, "water plants") && item.Status == reminder.StatusPending {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatalf("expected pending reminder for water plants, got %+v", items)
+	if len(items) == 0 {
+		t.Fatalf("expected pending reminder for water plants, got none")
 	}
 }
 
