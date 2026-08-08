@@ -101,7 +101,9 @@ fi
 VERIFY_OAUTH="$SCRIPT_DIR/verify-oauth-config.sh"
 if [ -x "$VERIFY_OAUTH" ] && [ -f "$DEPLOY_DIR/.env" ]; then
 	echo ">> Verifying Google OAuth configuration ..."
-	ENV_FILE="$DEPLOY_DIR/.env" "$VERIFY_OAUTH"
+	# $DEPLOY_DIR/.env is root-owned mode 600 (written by as_root above), so this
+	# read-only check must run as root too, like every other step touching it.
+	as_root env ENV_FILE="$DEPLOY_DIR/.env" "$VERIFY_OAUTH"
 fi
 
 # 3. Install/refresh the systemd unit, then restart the daemon. The unit is
