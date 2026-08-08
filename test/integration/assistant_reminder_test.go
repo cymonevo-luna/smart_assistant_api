@@ -147,7 +147,7 @@ func TestAssistantCreateReminderWithConfirmation(t *testing.T) {
 		t.Fatalf("expected success reply to mention water plants, got %q", turn2.Reply.Text)
 	}
 
-	items, err := application.Container().ReminderService.List(context.Background(), userID, reminder.ListFilterToday)
+	items, err := application.Container().ReminderService.List(context.Background(), userID, reminder.ListFilterAll)
 	if err != nil {
 		t.Fatalf("list reminders: %v", err)
 	}
