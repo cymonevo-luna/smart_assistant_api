@@ -22,10 +22,10 @@ const defaultMeetingDuration = time.Hour
 
 // GoogleCalendarMeetArgs are the extracted plugin arguments before mapping.
 type GoogleCalendarMeetArgs struct {
-	AttendeeName  string
-	AttendeeEmail string
-	StartTime     string
-	Title         string
+	AttendeeNames  []string
+	AttendeeEmails []string
+	StartTime      string
+	Title          string
 }
 
 // GoogleCalendarMeetPayload is the Composio GOOGLECALENDAR_CREATE_EVENT payload.
@@ -39,19 +39,40 @@ type GoogleCalendarMeetPayload struct {
 // ParseGoogleCalendarMeetArgs extracts typed arguments from the orchestrator map.
 func ParseGoogleCalendarMeetArgs(args map[string]any) (GoogleCalendarMeetArgs, error) {
 	out := GoogleCalendarMeetArgs{
-		AttendeeName:  stringArg(args, "attendee_name"),
-		AttendeeEmail: stringArg(args, "attendee_email"),
-		StartTime:     stringArg(args, "start_time"),
-		Title:         stringArg(args, "title"),
+		StartTime: stringArg(args, "start_time"),
+		Title:     stringArg(args, "title"),
 	}
-	if out.AttendeeName == "" {
-		return out, fmt.Errorf("attendee_name is required")
+
+	names, err := stringSliceArg(args, "attendee_names")
+	if err != nil {
+		return out, err
 	}
-	if out.AttendeeEmail == "" {
-		return out, fmt.Errorf("attendee_email is required")
+	if len(names) == 0 {
+		if legacy := stringArg(args, "attendee_name"); legacy != "" {
+			names = []string{legacy}
+		}
 	}
-	if out.StartTime == "" {
-		return out, fmt.Errorf("start_time is required")
+	out.AttendeeNames = names
+
+	emails, err := stringSliceArg(args, "attendee_emails")
+	if err != nil {
+		return out, err
+	}
+	if len(emails) == 0 {
+		if legacy := stringArg(args, "attendee_email"); legacy != "" {
+			emails = []string{legacy}
+		}
+	}
+	out.AttendeeEmails = emails
+
+	if len(out.AttendeeNames) == 0 {
+		return out, fmt.Errorf("attendee_names is required")
+	}
+	if len(out.AttendeeEmails) == 0 {
+		return out, fmt.Errorf("attendee_emails is required")
+	}
+	if len(out.AttendeeNames) != len(out.AttendeeEmails) {
+		return out, fmt.Errorf("attendee_names and attendee_emails must have the same number of entries")
 	}
 	return out, nil
 }
@@ -59,6 +80,10 @@ func ParseGoogleCalendarMeetArgs(args map[string]any) (GoogleCalendarMeetArgs, e
 // MapGoogleCalendarMeetPayload converts extracted args into the Composio tool payload.
 // Times are emitted in RFC3339; when timezone is empty, UTC is used.
 func MapGoogleCalendarMeetPayload(args GoogleCalendarMeetArgs, timezone string) (GoogleCalendarMeetPayload, error) {
+	if strings.TrimSpace(args.StartTime) == "" {
+		return GoogleCalendarMeetPayload{}, fmt.Errorf("start_time is required")
+	}
+
 	loc := time.UTC
 	if strings.TrimSpace(timezone) != "" {
 		parsed, err := time.LoadLocation(timezone)
@@ -76,14 +101,14 @@ func MapGoogleCalendarMeetPayload(args GoogleCalendarMeetArgs, timezone string) 
 
 	title := strings.TrimSpace(args.Title)
 	if title == "" {
-		title = fmt.Sprintf("Meeting with %s", args.AttendeeName)
+		title = fmt.Sprintf("Meeting with %s", strings.Join(args.AttendeeNames, ", "))
 	}
 
 	return GoogleCalendarMeetPayload{
 		Summary:       title,
 		StartDatetime: start.Format(time.RFC3339),
 		EndDatetime:   end.Format(time.RFC3339),
-		Attendees:     []string{args.AttendeeEmail},
+		Attendees:     args.AttendeeEmails,
 	}, nil
 }
 
@@ -119,4 +144,52 @@ func stringArg(args map[string]any, key string) string {
 	default:
 		return strings.TrimSpace(fmt.Sprint(v))
 	}
+}
+
+func stringSliceArg(args map[string]any, key string) ([]string, error) {
+	if args == nil {
+		return nil, nil
+	}
+	val, ok := args[key]
+	if !ok || val == nil {
+		return nil, nil
+	}
+	switch v := val.(type) {
+	case string:
+		return splitCommaSeparated(v), nil
+	case []string:
+		return trimStrings(v), nil
+	case []any:
+		out := make([]string, 0, len(v))
+		for _, item := range v {
+			s := strings.TrimSpace(fmt.Sprint(item))
+			if s != "" {
+				out = append(out, s)
+			}
+		}
+		return out, nil
+	default:
+		return splitCommaSeparated(fmt.Sprint(v)), nil
+	}
+}
+
+func splitCommaSeparated(raw string) []string {
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if trimmed := strings.TrimSpace(part); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
+}
+
+func trimStrings(values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
 }
