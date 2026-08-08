@@ -1,0 +1,14 @@
+[
+  {
+    "create": "assistant_settings"
+  },
+  {
+    "createIndexes": "assistant_settings",
+    "indexes": [
+      {
+        "key": { "updated_at": -1 },
+        "name": "idx_updated_at"
+      }
+    ]
+  }
+]
