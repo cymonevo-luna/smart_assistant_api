@@ -56,6 +56,47 @@ func writeEnvFile(t *testing.T, content string) string {
 	return path
 }
 
+func TestDeployCompose_StagingOAuthEnvDefaults(t *testing.T) {
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("cannot resolve test file path")
+	}
+	repoRoot := filepath.Join(filepath.Dir(thisFile), "..", "..")
+	compose := filepath.Join(repoRoot, "docker-compose.deploy.yml")
+	data, err := os.ReadFile(compose)
+	if err != nil {
+		t.Fatalf("read docker-compose.deploy.yml: %v", err)
+	}
+	content := string(data)
+	const redirectURL = "https://jarvis-api.cymonevo.com/api/v1/plugins/oauth/google/callback"
+	if !strings.Contains(content, "GOOGLE_OAUTH_REDIRECT_URL: "+redirectURL) {
+		t.Fatalf("deploy compose must set staging GOOGLE_OAUTH_REDIRECT_URL; file:\n%s", content)
+	}
+	if !strings.Contains(content, "APP_OAUTH_SUCCESS_REDIRECT: smartassistant://plugin-setup/complete") {
+		t.Fatalf("deploy compose must set APP_OAUTH_SUCCESS_REDIRECT; file:\n%s", content)
+	}
+}
+
+func TestRefreshDaemon_VerifiesOAuthConfig(t *testing.T) {
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("cannot resolve test file path")
+	}
+	repoRoot := filepath.Join(filepath.Dir(thisFile), "..", "..")
+	script := filepath.Join(repoRoot, "scripts", "refresh-daemon.sh")
+	data, err := os.ReadFile(script)
+	if err != nil {
+		t.Fatalf("read refresh-daemon.sh: %v", err)
+	}
+	content := string(data)
+	if !strings.Contains(content, "verify-oauth-config.sh") {
+		t.Fatalf("refresh-daemon.sh must invoke verify-oauth-config.sh; script:\n%s", content)
+	}
+	if !strings.Contains(content, `ENV_FILE="$DEPLOY_DIR/.env"`) {
+		t.Fatalf("refresh-daemon.sh must verify the deployed .env; script:\n%s", content)
+	}
+}
+
 func TestVerifyOAuthConfig_PassLocalhost(t *testing.T) {
 	envFile := writeEnvFile(t, `GOOGLE_OAUTH_CLIENT_ID=test-client
 GOOGLE_OAUTH_CLIENT_SECRET=test-secret
