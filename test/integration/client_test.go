@@ -60,10 +60,11 @@ func (r apiResult) decode(t *testing.T, v any) {
 	}
 }
 
-func (c *client) get(path string) apiResult            { return c.do(http.MethodGet, path, nil) }
-func (c *client) post(path string, body any) apiResult { return c.do(http.MethodPost, path, body) }
-func (c *client) put(path string, body any) apiResult  { return c.do(http.MethodPut, path, body) }
-func (c *client) delete(path string) apiResult         { return c.do(http.MethodDelete, path, nil) }
+func (c *client) get(path string) apiResult             { return c.do(http.MethodGet, path, nil) }
+func (c *client) post(path string, body any) apiResult  { return c.do(http.MethodPost, path, body) }
+func (c *client) put(path string, body any) apiResult   { return c.do(http.MethodPut, path, body) }
+func (c *client) patch(path string, body any) apiResult { return c.do(http.MethodPatch, path, body) }
+func (c *client) delete(path string) apiResult          { return c.do(http.MethodDelete, path, nil) }
 
 func (c *client) do(method, path string, body any) apiResult {
 	c.t.Helper()

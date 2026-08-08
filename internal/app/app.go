@@ -134,5 +134,8 @@ func buildRouter(cfg *config.Config, log logger.Logger, c *Container) http.Handl
 	adminPluginHandler := handler.NewAdminPluginHandler(c.PluginService, c.Validator)
 	adminPluginHandler.Register(r, appmw.Auth(c.Tokens), appmw.RequireRole(auth.RoleAdmin))
 
+	userPluginHandler := handler.NewUserPluginHandler(c.UserPluginService, c.Validator)
+	userPluginHandler.Register(r, appmw.Auth(c.Tokens))
+
 	return r
 }

@@ -1,0 +1,23 @@
+[
+  {
+    "create": "user_plugins"
+  },
+  {
+    "createIndexes": "user_plugins",
+    "indexes": [
+      {
+        "key": { "user_id": 1, "plugin_id": 1 },
+        "name": "uniq_user_plugin",
+        "unique": true
+      },
+      {
+        "key": { "user_id": 1 },
+        "name": "idx_user_id"
+      },
+      {
+        "key": { "installed_at": -1 },
+        "name": "idx_installed_at"
+      }
+    ]
+  }
+]
