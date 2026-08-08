@@ -29,6 +29,7 @@ var (
 	application     *app.App
 	server          *httptest.Server
 	mockGoogleOAuth *httptest.Server
+	mockComposioAPI *mockComposio
 )
 
 // TestMain builds the application, starts the in-process HTTP server, runs the
@@ -51,6 +52,11 @@ func runSuite(m *testing.M) int {
 	_ = os.Setenv("GOOGLE_OAUTH_CLIENT_ID", "integration-client-id")
 	_ = os.Setenv("GOOGLE_OAUTH_CLIENT_SECRET", "integration-secret")
 	_ = os.Setenv("GOOGLE_OAUTH_REDIRECT_URL", "http://localhost:8080/api/v1/plugins/oauth/google/callback")
+
+	mockComposioAPI = newMockComposio()
+	defer mockComposioAPI.Close()
+	_ = os.Setenv("COMPOSIO_API_KEY", "integration-composio-key")
+	_ = os.Setenv("COMPOSIO_BASE_URL", mockComposioAPI.URL())
 
 	a, err := app.New(ctx)
 	if err != nil {

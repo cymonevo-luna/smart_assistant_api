@@ -45,8 +45,20 @@ func TestPluginCatalogEmptyList(t *testing.T) {
 
 	var plugins []plugin.CatalogSummary
 	list.decode(t, &plugins)
-	if len(plugins) != 0 {
-		t.Fatalf("expected empty catalog, got %d plugins", len(plugins))
+	if len(plugins) == 0 {
+		t.Fatal("expected at least the seeded google-calendar-meet plugin")
+	}
+	found := false
+	for _, p := range plugins {
+		if p.Slug == "google-calendar-meet" {
+			found = true
+			if !p.RequiredSetup {
+				t.Fatalf("expected google-calendar-meet required_setup true, got false")
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("expected google-calendar-meet in catalog, got %+v", plugins)
 	}
 }
 

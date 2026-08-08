@@ -142,7 +142,10 @@ func BuildContainer(ctx context.Context, cfg *config.Config, log logger.Logger) 
 	stubExecutor := assistant.NewStubExecutor(log)
 	var composioExec *assistant.ComposioExecutor
 	if c.Cfg.Composio.APIKey != "" {
-		composioClient := composio.New(composio.Config{APIKey: c.Cfg.Composio.APIKey})
+		composioClient := composio.New(composio.Config{
+			APIKey:  c.Cfg.Composio.APIKey,
+			BaseURL: c.Cfg.Composio.BaseURL,
+		})
 		composioExec = assistant.NewComposioExecutor(composioClient, log)
 		c.Log.Info("composio client ready")
 	}

@@ -47,10 +47,17 @@ func defaultMockClassify(req ClassifyRequest) *ClassifyResult {
 			if strings.Contains(lower, strings.ToLower(trigger)) {
 				args := map[string]any{}
 				if strings.Contains(lower, "janet") {
-					args["title"] = "Meeting with Janet"
+					args["attendee_name"] = "Janet"
 				}
-				if strings.Contains(lower, "2pm") || strings.Contains(lower, "tomorrow") {
-					args["time"] = "2pm tomorrow"
+				if strings.Contains(lower, "2pm") || strings.Contains(lower, "2 pm") {
+					if strings.Contains(lower, "tomorrow") {
+						args["start_time"] = "2026-08-09T14:00:00+07:00"
+					} else {
+						args["start_time"] = "2026-08-09T14:00:00+07:00"
+					}
+				}
+				if title, ok := args["attendee_name"].(string); ok && title != "" {
+					args["title"] = "Meeting with " + title
 				}
 				return &ClassifyResult{
 					Matched:    true,

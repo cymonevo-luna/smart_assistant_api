@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/cymonevo/go_template/internal/domain/assistant/builtin"
 	"github.com/cymonevo/go_template/internal/domain/plugin"
 	"github.com/cymonevo/go_template/pkg/composio"
 	"github.com/cymonevo/go_template/pkg/logger"
@@ -50,7 +51,14 @@ func (e *ComposioExecutor) Execute(ctx context.Context, userID string, p *plugin
 		client = client.ForEntity(userID, strIDs...)
 	}
 
-	result, err := client.Execute(ctx, toolSlug, args)
+	execArgs := args
+	if mapped, err := mapBuiltinAdapterArgs(p, args); err != nil {
+		return nil, err
+	} else if mapped != nil {
+		execArgs = mapped
+	}
+
+	result, err := client.Execute(ctx, toolSlug, execArgs)
 	if err != nil {
 		e.log.Error("composio execution failed",
 			logger.String("plugin", p.Slug),
@@ -82,6 +90,23 @@ func (e *StubExecutor) Execute(_ context.Context, userID string, p *plugin.Plugi
 		logger.String("plugin", p.Slug),
 		logger.Any("arguments", args))
 	return map[string]any{"successful": true, "stub": true}, nil
+}
+
+func mapBuiltinAdapterArgs(p *plugin.Plugin, args map[string]any) (map[string]any, error) {
+	adapter, _ := p.Manifest.Executor.Config["builtin_adapter"].(string)
+	if adapter == "" {
+		if p.Slug == builtin.GoogleCalendarMeetSlug {
+			adapter = builtin.AdapterGoogleCalendarMeet
+		} else {
+			return nil, nil
+		}
+	}
+	switch adapter {
+	case builtin.AdapterGoogleCalendarMeet:
+		return builtin.MapGoogleCalendarMeetArgs(args, "UTC")
+	default:
+		return nil, fmt.Errorf("unsupported builtin adapter %q for plugin %q", adapter, p.Slug)
+	}
 }
 
 // RoutingExecutor dispatches to the correct backend by manifest executor type.
