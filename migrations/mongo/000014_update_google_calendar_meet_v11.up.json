@@ -1,0 +1,56 @@
+[
+  {
+    "update": "plugins",
+    "updates": [
+      {
+        "q": { "slug": "google-calendar-meet" },
+        "u": {
+          "$set": {
+            "version": "1.1.0",
+            "manifest": {
+              "triggers": [
+                "schedule a meeting",
+                "set up a meeting",
+                "create a calendar event"
+              ],
+              "required_setup": true,
+              "setup_type": "oauth_google",
+              "arguments": [
+                {
+                  "name": "attendee_names",
+                  "type": "string",
+                  "required": true,
+                  "description": "Comma-separated names of people to meet with, e.g. \"Kezia, Albert\"",
+                  "prompt": "Who would you like to meet with?"
+                },
+                {
+                  "name": "start_time",
+                  "type": "datetime",
+                  "required": false,
+                  "description": "When the meeting should start; when omitted the assistant will offer to find a time",
+                  "prompt": "When should I set the schedule?"
+                },
+                {
+                  "name": "title",
+                  "type": "string",
+                  "required": false,
+                  "description": "Calendar event title",
+                  "prompt": "What should the meeting be called?"
+                }
+              ],
+              "confirmation_required": true,
+              "executor": {
+                "type": "composio",
+                "config": {
+                  "tool_slug": "GOOGLECALENDAR_CREATE_EVENT",
+                  "builtin_adapter": "google_calendar_meet"
+                }
+              }
+            },
+            "updated_at": { "$date": "2026-08-08T00:00:00.000Z" }
+          }
+        }
+      }
+    ]
+  }
+]
