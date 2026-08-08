@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/cymonevo/go_template/internal/config"
 	"github.com/cymonevo/go_template/internal/domain/assistant"
@@ -57,6 +58,7 @@ type Container struct {
 	PluginRepo               plugin.Repository
 	PluginCredentialService  *plugincredential.Service
 	ReminderService          *reminder.Service
+	ReminderRepo             reminder.Repository
 	GoogleOAuthSetupService  *oauthgoogle.Service
 
 	redisClient *redis.Client
@@ -124,6 +126,7 @@ func BuildContainer(ctx context.Context, cfg *config.Config, log logger.Logger) 
 	credentialsCleaner := plugincredential.NewCleaner(c.PluginCredentialService, userPluginRepo)
 
 	reminderRepo := reminder.NewRepository(reminderStore)
+	c.ReminderRepo = reminderRepo
 	c.ReminderService = reminder.NewService(reminderRepo)
 	reminderCleaner := reminder.NewCleaner(c.ReminderService)
 	c.UserPluginService = userplugin.NewService(userPluginRepo, pluginRepo, credentialsCleaner, reminderCleaner)
@@ -311,6 +314,8 @@ func (c *Container) registerJobs() {
 			logger.String("email", evt.Email))
 		return nil
 	})
+
+	c.Scheduler.Register("reminder-dispatch", 30*time.Second, reminder.Dispatch(c.ReminderService, c.Log))
 }
 
 // StartBackground launches the queue consumers and the periodic scheduler.
