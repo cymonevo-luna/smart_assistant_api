@@ -739,6 +739,84 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/places/nearby": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Proxies nearby place search to the configured provider. Keyword nearby accuracy depends on the external provider.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "places"
+                ],
+                "summary": "Search nearby places by keyword",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Place keyword",
+                        "name": "keyword",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "number",
+                        "description": "Latitude",
+                        "name": "latitude",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "number",
+                        "description": "Longitude",
+                        "name": "longitude",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Search radius in meters (default 500)",
+                        "name": "radius_meters",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Envelope"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/handler.nearbyResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/response.Envelope"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/response.Envelope"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/plugins": {
             "get": {
                 "security": [
@@ -1722,6 +1800,11 @@ const docTemplate = `{
         "assistant.ActionInfo": {
             "type": "object",
             "properties": {
+                "payload": {
+                    "description": "Payload carries execution results or blocked-plugin metadata (reason, install_id, plugin_slug).",
+                    "type": "object",
+                    "additionalProperties": {}
+                },
                 "plugin_slug": {
                     "type": "string"
                 },
@@ -1919,6 +2002,34 @@ const docTemplate = `{
                 "RoleUser",
                 "RoleAdmin"
             ]
+        },
+        "handler.nearbyPlaceResponse": {
+            "type": "object",
+            "properties": {
+                "latitude": {
+                    "type": "number"
+                },
+                "longitude": {
+                    "type": "number"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "place_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "handler.nearbyResponse": {
+            "type": "object",
+            "properties": {
+                "places": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/handler.nearbyPlaceResponse"
+                    }
+                }
+            }
         },
         "oauthgoogle.SetupInitResponse": {
             "type": "object",

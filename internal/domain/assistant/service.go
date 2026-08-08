@@ -18,12 +18,35 @@ import (
 	"github.com/google/uuid"
 )
 
-const noActionText = "I heard you, but no action is configured."
+const (
+	noActionText                = "I heard you, but no action is configured."
+	noMatchText                 = "I don't know how to do that yet."
+	classifierUnavailableText   = "I'm having trouble understanding that right now. Please try again in a moment."
+	actionReasonSetupIncomplete = "setup_incomplete"
+	actionReasonPluginDisabled  = "plugin_disabled"
+)
+
+// installedPluginState categorises why an install may or may not be usable.
+type installedPluginState string
+
+const (
+	pluginStateEligible        installedPluginState = "eligible"
+	pluginStateSetupIncomplete installedPluginState = "setup_incomplete"
+	pluginStateDisabled        installedPluginState = "disabled"
+	pluginStateCatalogMissing  installedPluginState = "catalog_missing"
+)
 
 // eligiblePlugin pairs an install row with its catalog entry.
 type eligiblePlugin struct {
 	install *userplugin.UserPlugin
 	catalog *plugin.Plugin
+}
+
+// pluginInstallState pairs an install with catalog metadata and eligibility state.
+type pluginInstallState struct {
+	install *userplugin.UserPlugin
+	catalog *plugin.Plugin
+	state   installedPluginState
 }
 
 // Service orchestrates assistant sessions and message processing.
@@ -229,11 +252,32 @@ func (s *Service) handlePendingAction(ctx context.Context, userID string, sessio
 }
 
 func (s *Service) classifyAndExecute(ctx context.Context, userID, text string) (Reply, *PendingAction, SessionStatus, error) {
-	eligible, err := s.listEligiblePlugins(ctx, userID)
+	states, err := s.listInstalledPluginStates(ctx, userID)
 	if err != nil {
 		return Reply{}, nil, SessionStatusActive, err
 	}
+	if len(states) == 0 {
+		return Reply{Type: ReplyTypeText, Text: noActionText}, nil, SessionStatusActive, nil
+	}
+
+	eligible := make([]eligiblePlugin, 0, len(states))
+	for _, st := range states {
+		if st.state == pluginStateEligible {
+			eligible = append(eligible, eligiblePlugin{install: st.install, catalog: st.catalog})
+		}
+	}
+
 	if len(eligible) == 0 {
+		for _, st := range states {
+			if st.state == pluginStateSetupIncomplete {
+				return blockedPluginReply(st, actionReasonSetupIncomplete), nil, SessionStatusActive, nil
+			}
+		}
+		for _, st := range states {
+			if st.state == pluginStateDisabled {
+				return blockedPluginReply(st, actionReasonPluginDisabled), nil, SessionStatusActive, nil
+			}
+		}
 		return Reply{Type: ReplyTypeText, Text: noActionText}, nil, SessionStatusActive, nil
 	}
 
@@ -253,10 +297,10 @@ func (s *Service) classifyAndExecute(ctx context.Context, userID, text string) (
 	})
 	if err != nil {
 		s.log.Error("intent classification failed", logger.Err(err))
-		return Reply{Type: ReplyTypeText, Text: noActionText}, nil, SessionStatusActive, nil
+		return Reply{Type: ReplyTypeText, Text: classifierUnavailableText}, nil, SessionStatusActive, nil
 	}
 	if result == nil || !result.Matched || result.PluginSlug == "" {
-		return Reply{Type: ReplyTypeText, Text: noActionText}, nil, SessionStatusActive, nil
+		return Reply{Type: ReplyTypeText, Text: noMatchText}, nil, SessionStatusActive, nil
 	}
 
 	var matched *eligiblePlugin
@@ -267,7 +311,7 @@ func (s *Service) classifyAndExecute(ctx context.Context, userID, text string) (
 		}
 	}
 	if matched == nil {
-		return Reply{Type: ReplyTypeText, Text: noActionText}, nil, SessionStatusActive, nil
+		return Reply{Type: ReplyTypeText, Text: noMatchText}, nil, SessionStatusActive, nil
 	}
 
 	args := result.Arguments
@@ -493,7 +537,7 @@ func isLocationReminderSlug(slug string) bool {
 	return slug == builtin.LocationReminderSlug
 }
 
-func (s *Service) listEligiblePlugins(ctx context.Context, userID string) ([]eligiblePlugin, error) {
+func (s *Service) listInstalledPluginStates(ctx context.Context, userID string) ([]pluginInstallState, error) {
 	installs, err := s.userPlugins.FindByUserID(ctx, userID)
 	if err != nil {
 		return nil, response.NewInternal("failed to list installed plugins").Wrap(err)
@@ -515,22 +559,73 @@ func (s *Service) listEligiblePlugins(ctx context.Context, userID string) ([]eli
 		byID[catalogItems[i].ID] = &catalogItems[i]
 	}
 
-	out := make([]eligiblePlugin, 0, len(installs))
+	out := make([]pluginInstallState, 0, len(installs))
 	for i := range installs {
 		inst := &installs[i]
-		if !inst.Enabled {
-			continue
-		}
 		cat, ok := byID[inst.PluginID]
 		if !ok {
+			out = append(out, pluginInstallState{
+				install: inst,
+				state:   pluginStateCatalogMissing,
+			})
+			continue
+		}
+		if !inst.Enabled {
+			out = append(out, pluginInstallState{
+				install: inst,
+				catalog: cat,
+				state:   pluginStateDisabled,
+			})
 			continue
 		}
 		if cat.Manifest.RequiredSetup && inst.SetupStatus != userplugin.SetupStatusCompleted {
+			out = append(out, pluginInstallState{
+				install: inst,
+				catalog: cat,
+				state:   pluginStateSetupIncomplete,
+			})
 			continue
 		}
-		out = append(out, eligiblePlugin{install: inst, catalog: cat})
+		out = append(out, pluginInstallState{
+			install: inst,
+			catalog: cat,
+			state:   pluginStateEligible,
+		})
 	}
 	return out, nil
+}
+
+func blockedPluginReply(state pluginInstallState, reason string) Reply {
+	name := "This plugin"
+	slug := ""
+	if state.catalog != nil {
+		name = state.catalog.Name
+		slug = state.catalog.Slug
+	}
+
+	var text string
+	switch reason {
+	case actionReasonSetupIncomplete:
+		text = fmt.Sprintf("%s is installed but still needs setup before I can help with that.", name)
+	case actionReasonPluginDisabled:
+		text = fmt.Sprintf("%s is installed but disabled. Please enable it to use this feature.", name)
+	default:
+		text = noActionText
+	}
+
+	return Reply{
+		Type: ReplyTypeText,
+		Text: text,
+		Action: &ActionInfo{
+			PluginSlug: slug,
+			Status:     ActionStatusPending,
+			Payload: map[string]any{
+				"reason":      reason,
+				"install_id":  state.install.ID,
+				"plugin_slug": slug,
+			},
+		},
+	}
 }
 
 func (s *Service) loadEligiblePlugin(ctx context.Context, userID, pluginID, installID string) (eligiblePlugin, error) {

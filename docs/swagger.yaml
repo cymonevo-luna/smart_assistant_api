@@ -2,6 +2,11 @@ basePath: /
 definitions:
   assistant.ActionInfo:
     properties:
+      payload:
+        additionalProperties: {}
+        description: Payload carries execution results or blocked-plugin metadata
+          (reason, install_id, plugin_slug).
+        type: object
       plugin_slug:
         type: string
       status:
@@ -137,6 +142,24 @@ definitions:
     x-enum-varnames:
     - RoleUser
     - RoleAdmin
+  handler.nearbyPlaceResponse:
+    properties:
+      latitude:
+        type: number
+      longitude:
+        type: number
+      name:
+        type: string
+      place_id:
+        type: string
+    type: object
+  handler.nearbyResponse:
+    properties:
+      places:
+        items:
+          $ref: '#/definitions/handler.nearbyPlaceResponse'
+        type: array
+    type: object
   oauthgoogle.SetupInitResponse:
     properties:
       authorization_url:
@@ -912,6 +935,55 @@ paths:
       summary: Register a new user
       tags:
       - auth
+  /api/v1/places/nearby:
+    get:
+      description: Proxies nearby place search to the configured provider. Keyword
+        nearby accuracy depends on the external provider.
+      parameters:
+      - description: Place keyword
+        in: query
+        name: keyword
+        required: true
+        type: string
+      - description: Latitude
+        in: query
+        name: latitude
+        required: true
+        type: number
+      - description: Longitude
+        in: query
+        name: longitude
+        required: true
+        type: number
+      - description: Search radius in meters (default 500)
+        in: query
+        name: radius_meters
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/handler.nearbyResponse'
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+      - BearerAuth: []
+      summary: Search nearby places by keyword
+      tags:
+      - places
   /api/v1/plugins:
     get:
       parameters:
