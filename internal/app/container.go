@@ -6,6 +6,7 @@ import (
 
 	"github.com/cymonevo/go_template/internal/config"
 	"github.com/cymonevo/go_template/internal/domain/assistant_settings"
+	"github.com/cymonevo/go_template/internal/domain/plugin"
 	"github.com/cymonevo/go_template/internal/domain/user"
 	"github.com/cymonevo/go_template/internal/handler"
 	"github.com/cymonevo/go_template/internal/infra/mongo"
@@ -41,6 +42,7 @@ type Container struct {
 
 	UserService              *user.Service
 	AssistantSettingsService *assistantsettings.Service
+	PluginService            *plugin.Service
 
 	redisClient *redis.Client
 	pingers     map[string]handler.Pinger
@@ -70,11 +72,10 @@ func BuildContainer(ctx context.Context, cfg *config.Config, log logger.Logger) 
 	}
 	c.buildRateLimiter()
 
-	// The database backend is chosen here and ONLY here. The returned store and
-	// transaction manager satisfy store.Store[user.User] and store.TxManager
-	// regardless of engine, so no repository/service/handler code is aware of
-	// the choice.
-	userStore, assistantSettingsStore, err := c.buildStores(ctx)
+	// The database backend is chosen here and ONLY here. The returned stores and
+	// transaction manager satisfy store.Store[T] and store.TxManager regardless
+	// of engine, so no repository/service/handler code is aware of the choice.
+	userStore, assistantSettingsStore, pluginStore, err := c.buildStores(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -85,6 +86,10 @@ func BuildContainer(ctx context.Context, cfg *config.Config, log logger.Logger) 
 
 	assistantSettingsRepo := assistantsettings.NewRepository(assistantSettingsStore)
 	c.AssistantSettingsService = assistantsettings.NewService(assistantSettingsRepo)
+
+	pluginRepo := plugin.NewRepository(pluginStore)
+	pluginCache := cache.NewTyped[plugin.Plugin](c.Cache, cfg.Cache.TTL)
+	c.PluginService = plugin.NewService(pluginRepo, pluginCache, c.TxManager, log)
 
 	c.registerJobs()
 	return c, nil
@@ -154,37 +159,45 @@ func (c *Container) buildRateLimiter() {
 
 // buildStores is the single switch point between databases. It also builds the
 // matching transaction manager and all entity stores from one connection.
-func (c *Container) buildStores(ctx context.Context) (store.Store[user.User], store.Store[assistantsettings.Settings], error) {
+func (c *Container) buildStores(ctx context.Context) (
+	store.Store[user.User],
+	store.Store[assistantsettings.Settings],
+	store.Store[plugin.Plugin],
+	error,
+) {
 	userSchema := store.Schema{Name: user.TableName, IDColumn: "id"}
 	settingsSchema := store.Schema{Name: assistantsettings.TableName, IDColumn: "user_id"}
+	pluginSchema := store.Schema{Name: plugin.TableName, IDColumn: "id"}
 
 	switch c.Cfg.Database.Driver {
 	case config.DriverPostgres:
 		pool, err := postgres.Connect(ctx, c.Cfg.Database)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		c.Log.Info("database ready", logger.String("driver", "postgres"))
 		c.TxManager = store.NewPostgresTxManager(pool)
 		c.pingers["postgres"] = pingerFunc(func(ctx context.Context) error { return pool.Ping(ctx) })
 		c.closers = append(c.closers, func(context.Context) error { pool.Close(); return nil })
 		return store.NewPostgresStore[user.User](pool, userSchema),
-			store.NewPostgresStore[assistantsettings.Settings](pool, settingsSchema), nil
+			store.NewPostgresStore[assistantsettings.Settings](pool, settingsSchema),
+			store.NewPostgresStore[plugin.Plugin](pool, pluginSchema), nil
 
 	case config.DriverMongo:
 		client, db, err := mongo.Connect(ctx, c.Cfg.Database)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		c.Log.Info("database ready", logger.String("driver", "mongo"))
 		c.TxManager = store.NewMongoTxManager(client)
 		c.pingers["mongo"] = pingerFunc(func(ctx context.Context) error { return client.Ping(ctx, nil) })
 		c.closers = append(c.closers, func(ctx context.Context) error { return disconnectMongo(ctx, client) })
 		return store.NewMongoStore[user.User](db, userSchema),
-			store.NewMongoStore[assistantsettings.Settings](db, settingsSchema), nil
+			store.NewMongoStore[assistantsettings.Settings](db, settingsSchema),
+			store.NewMongoStore[plugin.Plugin](db, pluginSchema), nil
 
 	default:
-		return nil, nil, fmt.Errorf("unsupported database driver %q", c.Cfg.Database.Driver)
+		return nil, nil, nil, fmt.Errorf("unsupported database driver %q", c.Cfg.Database.Driver)
 	}
 }
 

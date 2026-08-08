@@ -25,6 +25,154 @@ definitions:
     x-enum-varnames:
     - RoleUser
     - RoleAdmin
+  plugin.CatalogSummary:
+    properties:
+      description:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      required_setup:
+        type: boolean
+      setup_type:
+        $ref: '#/definitions/plugin.SetupType'
+      slug:
+        type: string
+      version:
+        type: string
+    type: object
+  plugin.DetailResponse:
+    properties:
+      description:
+        type: string
+      id:
+        type: string
+      manifest:
+        $ref: '#/definitions/plugin.PluginManifest'
+      name:
+        type: string
+      slug:
+        type: string
+      version:
+        type: string
+    type: object
+  plugin.Executor:
+    properties:
+      config:
+        additionalProperties: {}
+        type: object
+      type:
+        $ref: '#/definitions/plugin.ExecutorType'
+    type: object
+  plugin.ExecutorType:
+    enum:
+    - composio
+    - http
+    - builtin
+    type: string
+    x-enum-varnames:
+    - ExecutorTypeComposio
+    - ExecutorTypeHTTP
+    - ExecutorTypeBuiltin
+  plugin.ManifestArgument:
+    properties:
+      description:
+        type: string
+      name:
+        type: string
+      prompt:
+        type: string
+      required:
+        type: boolean
+      type:
+        type: string
+    type: object
+  plugin.PageMeta:
+    properties:
+      page:
+        type: integer
+      per_page:
+        type: integer
+      total:
+        type: integer
+    type: object
+  plugin.PluginManifest:
+    properties:
+      arguments:
+        items:
+          $ref: '#/definitions/plugin.ManifestArgument'
+        type: array
+      confirmation_required:
+        type: boolean
+      executor:
+        $ref: '#/definitions/plugin.Executor'
+      required_setup:
+        type: boolean
+      setup_type:
+        $ref: '#/definitions/plugin.SetupType'
+      triggers:
+        items:
+          type: string
+        type: array
+    type: object
+  plugin.RegisterPluginInput:
+    properties:
+      description:
+        maxLength: 2000
+        type: string
+      manifest:
+        $ref: '#/definitions/plugin.PluginManifest'
+      name:
+        maxLength: 200
+        minLength: 2
+        type: string
+      slug:
+        maxLength: 120
+        minLength: 2
+        type: string
+      version:
+        maxLength: 64
+        minLength: 1
+        type: string
+    required:
+    - manifest
+    - name
+    - slug
+    - version
+    type: object
+  plugin.SetupType:
+    enum:
+    - none
+    - oauth_google
+    - oauth_generic
+    - form
+    type: string
+    x-enum-varnames:
+    - SetupTypeNone
+    - SetupTypeOAuthGoogle
+    - SetupTypeOAuthGeneric
+    - SetupTypeForm
+  plugin.UpdatePluginInput:
+    properties:
+      description:
+        maxLength: 2000
+        type: string
+      manifest:
+        $ref: '#/definitions/plugin.PluginManifest'
+      name:
+        maxLength: 200
+        minLength: 2
+        type: string
+      version:
+        maxLength: 64
+        minLength: 1
+        type: string
+    required:
+    - manifest
+    - name
+    - version
+    type: object
   response.Envelope:
     properties:
       data: {}
@@ -118,6 +266,91 @@ info:
   title: go_template API
   version: "1.0"
 paths:
+  /api/admin/plugins:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Plugin registration payload
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/plugin.RegisterPluginInput'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/plugin.DetailResponse'
+              type: object
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+      - BearerAuth: []
+      summary: Register a plugin in the catalog (admin only)
+      tags:
+      - plugins
+  /api/admin/plugins/{slug}:
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Plugin slug
+        in: path
+        name: slug
+        required: true
+        type: string
+      - description: Plugin update payload
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/plugin.UpdatePluginInput'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/plugin.DetailResponse'
+              type: object
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+      - BearerAuth: []
+      summary: Update a catalog plugin (admin only)
+      tags:
+      - plugins
   /api/admin/users:
     get:
       parameters:
@@ -354,6 +587,75 @@ paths:
       summary: Register a new user
       tags:
       - auth
+  /api/v1/plugins:
+    get:
+      parameters:
+      - description: Page number
+        in: query
+        name: page
+        type: integer
+      - description: Items per page
+        in: query
+        name: per_page
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/plugin.CatalogSummary'
+                  type: array
+                meta:
+                  $ref: '#/definitions/plugin.PageMeta'
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+      - BearerAuth: []
+      summary: List plugins in the catalog
+      tags:
+      - plugins
+  /api/v1/plugins/{slug}:
+    get:
+      parameters:
+      - description: Plugin slug
+        in: path
+        name: slug
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/plugin.DetailResponse'
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+      - BearerAuth: []
+      summary: Get a plugin by slug
+      tags:
+      - plugins
   /api/v1/users/{id}:
     get:
       parameters:

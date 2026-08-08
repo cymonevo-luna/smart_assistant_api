@@ -1,0 +1,19 @@
+[
+  {
+    "create": "plugins"
+  },
+  {
+    "createIndexes": "plugins",
+    "indexes": [
+      {
+        "key": { "slug": 1 },
+        "name": "uniq_slug",
+        "unique": true
+      },
+      {
+        "key": { "created_at": -1 },
+        "name": "idx_created_at"
+      }
+    ]
+  }
+]
