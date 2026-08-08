@@ -100,6 +100,9 @@ services:
       QUEUE_DRIVER: redis
       REDIS_ADDR: redis:6379
       RATE_LIMIT_ENABLED: "true"
+      # Non-secret OAuth settings for staging (must match Google Cloud Console).
+      GOOGLE_OAUTH_REDIRECT_URL: https://jarvis-api.cymonevo.com/api/v1/plugins/oauth/google/callback
+      APP_OAUTH_SUCCESS_REDIRECT: smartassistant://plugin-setup/complete
     ports:
       - "8791:8080"
     depends_on:

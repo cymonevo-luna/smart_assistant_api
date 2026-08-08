@@ -98,6 +98,12 @@ if [ -f "$APP_ENV" ]; then
 	as_root chmod 600 "$DEPLOY_DIR/.env"
 fi
 
+VERIFY_OAUTH="$SCRIPT_DIR/verify-oauth-config.sh"
+if [ -x "$VERIFY_OAUTH" ] && [ -f "$DEPLOY_DIR/.env" ]; then
+	echo ">> Verifying Google OAuth configuration ..."
+	ENV_FILE="$DEPLOY_DIR/.env" "$VERIFY_OAUTH"
+fi
+
 # 3. Install/refresh the systemd unit, then restart the daemon. The unit is
 #    fully managed by this script, so always (re)write it to propagate changes.
 #    When the stack has a migrate service, run it as ExecStartPre on every start.
