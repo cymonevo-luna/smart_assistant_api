@@ -137,5 +137,8 @@ func buildRouter(cfg *config.Config, log logger.Logger, c *Container) http.Handl
 	userPluginHandler := handler.NewUserPluginHandler(c.UserPluginService, c.Validator)
 	userPluginHandler.Register(r, appmw.Auth(c.Tokens))
 
+	pluginSetupHandler := handler.NewPluginSetupHandler(c.GoogleOAuthSetupService, cfg.App.OAuthSuccessRedirect)
+	pluginSetupHandler.Register(r, appmw.Auth(c.Tokens))
+
 	return r
 }
