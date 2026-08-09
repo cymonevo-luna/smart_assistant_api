@@ -20,8 +20,11 @@ import (
 	"time"
 )
 
-// DefaultBaseURL is the public Composio API base.
+// DefaultBaseURL is the public Composio API base (v3 tools execute).
 const DefaultBaseURL = "https://backend.composio.dev"
+
+// DefaultBaseURLV31 is the public Composio API v3.1 base (sessions, connected accounts).
+const DefaultBaseURLV31 = "https://backend.composio.dev/api/v3.1"
 
 // Config configures a Client.
 type Config struct {
@@ -65,6 +68,13 @@ func New(cfg Config) *Client {
 		connectedIDs: cfg.ConnectedAccountIDs,
 		http:         hc,
 	}
+}
+
+// WithAPIKey returns a shallow copy of the client using key for x-api-key auth.
+func (c *Client) WithAPIKey(key string) *Client {
+	clone := *c
+	clone.apiKey = key
+	return &clone
 }
 
 // ForAccounts returns a shallow copy of the client scoped to a specific ordered
