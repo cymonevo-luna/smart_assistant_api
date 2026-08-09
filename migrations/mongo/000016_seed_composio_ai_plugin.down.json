@@ -1,0 +1,11 @@
+[
+  {
+    "delete": "plugins",
+    "deletes": [
+      {
+        "q": { "slug": "composio-ai" },
+        "limit": 1
+      }
+    ]
+  }
+]
