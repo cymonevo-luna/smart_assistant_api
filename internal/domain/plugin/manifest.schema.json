@@ -65,7 +65,7 @@
       "properties": {
         "type": {
           "type": "string",
-          "enum": ["composio", "http", "builtin"]
+          "enum": ["composio", "composio_mcp", "http", "builtin"]
         },
         "config": {
           "type": "object"

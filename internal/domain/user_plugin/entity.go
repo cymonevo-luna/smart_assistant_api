@@ -17,6 +17,12 @@ const (
 	SetupStatusFailed     SetupStatus = "failed"
 )
 
+// InstallConfig holds non-secret per-install settings stored in UserPlugin.Config.
+type InstallConfig struct {
+	ConnectedToolkits      []string `json:"connected_toolkits,omitempty"`
+	ConnectedAccountsCount int      `json:"connected_accounts_count,omitempty"`
+}
+
 // UserPlugin links a user to an installed catalog plugin.
 type UserPlugin struct {
 	ID          string         `json:"id" db:"id" bson:"_id"`

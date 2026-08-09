@@ -73,6 +73,17 @@ func TestManifestValidation(t *testing.T) {
 		err := ValidateManifest(m)
 		assertValidationError(t, err, "executor.type")
 	})
+
+	t.Run("composio_mcp executor type accepted", func(t *testing.T) {
+		m := validManifest()
+		m.Executor.Type = ExecutorTypeComposioMCP
+		m.Executor.Config = map[string]any{
+			"tool_slug": "GITHUB_CREATE_ISSUE",
+		}
+		if err := ValidateManifest(m); err != nil {
+			t.Fatalf("expected composio_mcp executor to be valid, got %v", err)
+		}
+	})
 }
 
 func TestRedactExecutorConfig(t *testing.T) {
