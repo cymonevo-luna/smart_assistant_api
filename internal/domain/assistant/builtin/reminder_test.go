@@ -81,12 +81,18 @@ func TestExecuteReminderCreateRejectsPastTime(t *testing.T) {
 	}
 }
 
-func TestParseDateTime(t *testing.T) {
-	got, err := ParseDateTime("2026-08-09T14:00:00Z", time.UTC)
-	if err != nil {
-		t.Fatalf("ParseDateTime: %v", err)
+func TestExecuteReminderCreateRejectsUnparseableRemindAt(t *testing.T) {
+	svc := reminder.NewService(reminder.NewRepository(store.NewMemoryStore[reminder.Reminder]()))
+	_, err := ExecuteReminder(context.Background(), svc, "user-1", "", map[string]any{
+		"operation": "create",
+		"message":   "test",
+		"remind_at": "sometime maybe",
+	})
+	if err == nil {
+		t.Fatal("expected validation error")
 	}
-	if got.UTC().Hour() != 14 {
-		t.Fatalf("hour = %d", got.Hour())
+	text := ExecutorErrorText(err)
+	if !strings.Contains(text, "couldn't understand") {
+		t.Fatalf("expected unparseable time message, got %q", text)
 	}
 }

@@ -4,8 +4,11 @@ package integration
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -13,7 +16,9 @@ import (
 	"github.com/cymonevo/go_template/internal/domain/assistant"
 	"github.com/cymonevo/go_template/internal/domain/reminder"
 	"github.com/cymonevo/go_template/internal/domain/user"
+	"github.com/cymonevo/go_template/internal/domain/user_plugin"
 	"github.com/google/uuid"
+	_ "github.com/lib/pq"
 )
 
 func seedReminderPlugin(t *testing.T, slug string) {
@@ -104,6 +109,35 @@ func seedReminderForUser(t *testing.T, userID, message string, remindAt time.Tim
 		t.Fatalf("seed reminder: %v", err)
 	}
 	return rem
+}
+
+func seedReminderPendingRemindAt(t *testing.T, sessionID string, installed userplugin.InstalledResponse) {
+	t.Helper()
+	pending := map[string]any{
+		"plugin_slug":      reminderPluginSlug,
+		"plugin_id":        installed.Plugin.ID,
+		"install_id":       installed.ID,
+		"arguments":        map[string]any{"operation": "create", "message": "call mom"},
+		"missing_argument": "remind_at",
+	}
+	raw, err := json.Marshal(pending)
+	if err != nil {
+		t.Fatalf("marshal pending action: %v", err)
+	}
+	dbURI := os.Getenv("DB_URI")
+	if dbURI == "" {
+		dbURI = "postgres://postgres:postgres@localhost:5432/smart_assistant_api?sslmode=disable"
+	}
+	db, err := sql.Open("postgres", dbURI)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	if _, err := db.ExecContext(context.Background(),
+		"UPDATE assistant_sessions SET pending_action = $1::jsonb, updated_at = now() WHERE id = $2",
+		string(raw), sessionID); err != nil {
+		t.Fatalf("update pending_action: %v", err)
+	}
 }
 
 func TestAssistantCreateReminderWithConfirmation(t *testing.T) {
@@ -259,5 +293,71 @@ func TestAssistantCreateReminderRejectsPastTime(t *testing.T) {
 	}
 	if !strings.Contains(strings.ToLower(last.Reply.Text), "past") {
 		t.Fatalf("expected past-time error text, got %q", last.Reply.Text)
+	}
+}
+
+func TestAssistantCreateReminderAfternoonConversation(t *testing.T) {
+	authed, userID := registerReminderJourneyUser(t)
+	installReminderPluginFromCatalog(t, authed)
+	sessionID := createAssistantSession(t, authed)
+
+	first := sendAssistantMessage(t, authed, sessionID, "Remind me to buy groceries afternoon")
+	if first.Reply.Type == assistant.ReplyTypeFollowUp {
+		second := sendAssistantMessage(t, authed, sessionID, "Buy groceries")
+		if second.Reply.Type == assistant.ReplyTypeFollowUp {
+			third := sendAssistantMessage(t, authed, sessionID, "This afternoon")
+			if third.Reply.Type != assistant.ReplyTypeConfirmation {
+				t.Fatalf("expected confirmation after time slot, got %q (%s)", third.Reply.Type, third.Reply.Text)
+			}
+		} else if second.Reply.Type != assistant.ReplyTypeConfirmation {
+			t.Fatalf("expected confirmation or follow_up, got %q (%s)", second.Reply.Type, second.Reply.Text)
+		}
+	} else if first.Reply.Type != assistant.ReplyTypeConfirmation {
+		t.Fatalf("expected confirmation or follow_up, got %q (%s)", first.Reply.Type, first.Reply.Text)
+	}
+
+	final := sendAssistantMessage(t, authed, sessionID, "sure")
+	if final.Reply.Type != assistant.ReplyTypeActionResult {
+		t.Fatalf("expected action_result, got %q (%s)", final.Reply.Type, final.Reply.Text)
+	}
+	if final.Reply.Action == nil || final.Reply.Action.Status != assistant.ActionStatusSuccess {
+		t.Fatalf("expected successful action, got %+v", final.Reply.Action)
+	}
+	if !strings.Contains(strings.ToLower(final.Reply.Text), "buy groceries") {
+		t.Fatalf("expected success reply to mention buy groceries, got %q", final.Reply.Text)
+	}
+
+	items, err := application.Container().ReminderRepo.FindPendingByUserAndMessage(context.Background(), userID, "buy groceries")
+	if err != nil {
+		t.Fatalf("find pending reminders: %v", err)
+	}
+	if len(items) == 0 {
+		t.Fatal("expected pending reminder for buy groceries")
+	}
+	if items[0].RemindAt == nil || !items[0].RemindAt.After(time.Now().UTC()) {
+		t.Fatalf("expected future remind_at, got %v", items[0].RemindAt)
+	}
+}
+
+func TestAssistantCreateReminderRejectsUnparseableTime(t *testing.T) {
+	authed, userID := registerReminderJourneyUser(t)
+	installed := installReminderPluginFromCatalog(t, authed)
+	sessionID := createAssistantSession(t, authed)
+	seedReminderPendingRemindAt(t, sessionID, installed)
+
+	second := sendAssistantMessage(t, authed, sessionID, "sometime maybe")
+	if second.Reply.Type != assistant.ReplyTypeFollowUp {
+		t.Fatalf("expected follow_up re-prompt, got %q (%s)", second.Reply.Type, second.Reply.Text)
+	}
+	if !strings.Contains(strings.ToLower(second.Reply.Text), "couldn't understand") {
+		t.Fatalf("expected unparseable time message, got %q", second.Reply.Text)
+	}
+
+	items, err := application.Container().ReminderRepo.FindPendingByUserAndMessage(context.Background(), userID, "call mom")
+	if err != nil {
+		t.Fatalf("find pending reminders: %v", err)
+	}
+	if len(items) > 0 {
+		t.Fatalf("expected no reminder created, got %d", len(items))
 	}
 }

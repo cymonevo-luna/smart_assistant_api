@@ -49,7 +49,9 @@ func executeReminderCreate(ctx context.Context, svc *reminder.Service, userID, i
 
 	remindAt, err := ParseDateTime(rawAt, time.UTC)
 	if err != nil {
-		return nil, err
+		return nil, response.NewValidation(map[string]string{
+			"remind_at": "could not parse",
+		})
 	}
 
 	var userPluginID *string
@@ -172,6 +174,10 @@ func ExecutorErrorText(err error) string {
 			case "remind_at":
 				if msg == "must be in the future" {
 					parts = append(parts, "That reminder time is in the past. Please choose a future time.")
+					continue
+				}
+				if msg == "could not parse" {
+					parts = append(parts, "I couldn't understand that time. Try something like '3pm today' or 'tomorrow morning'.")
 					continue
 				}
 			case "message":

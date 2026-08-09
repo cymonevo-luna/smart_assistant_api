@@ -143,6 +143,24 @@ func TestFirstMissingReminderArgument(t *testing.T) {
 	}
 }
 
+func TestSplitMessageAndRemindAt(t *testing.T) {
+	msg, clause := splitMessageAndRemindAt("buy groceries this afternoon")
+	if msg != "buy groceries" || clause != "this afternoon" {
+		t.Fatalf("got %q / %q", msg, clause)
+	}
+}
+
+func TestApplyReminderFollowUpRejectsUnparseableTime(t *testing.T) {
+	args := map[string]any{"operation": "create", "message": "call mom"}
+	ok, prompt := applyReminderFollowUp("remind_at", "sometime maybe", args)
+	if ok || !strings.Contains(prompt, "couldn't understand") {
+		t.Fatalf("expected unparseable prompt, got ok=%v prompt=%q", ok, prompt)
+	}
+	if _, exists := args["remind_at"]; exists {
+		t.Fatal("expected remind_at not to be set")
+	}
+}
+
 func TestConfirmationPromptReminder(t *testing.T) {
 	got := confirmationPromptReminder("create", map[string]any{
 		"message":   "call mom",
