@@ -61,15 +61,7 @@ func defaultMockClassify(req ClassifyRequest) *ClassifyResult {
 }
 
 func matchLocationReminderIntent(lower string, p PluginCandidate) *ClassifyResult {
-	isLocationPlugin := p.Slug == "set-reminder"
-	for _, trigger := range p.Triggers {
-		triggerLower := strings.ToLower(trigger)
-		if strings.Contains(lower, triggerLower) {
-			isLocationPlugin = true
-			break
-		}
-	}
-	if !isLocationPlugin {
+	if p.Slug != "set-reminder" {
 		return nil
 	}
 
@@ -127,7 +119,11 @@ func reminderTextHasTime(lower string) bool {
 	if strings.Contains(lower, " at ") {
 		return true
 	}
-	for _, token := range []string{"am", "pm", "1pm", "2pm", "3pm", "today", "tomorrow"} {
+	for _, token := range []string{
+		"am", "pm", "1pm", "2pm", "3pm",
+		"today", "tomorrow",
+		"morning", "afternoon", "evening", "noon", "tonight",
+	} {
 		if strings.Contains(lower, token) {
 			return true
 		}
@@ -234,10 +230,27 @@ func extractReminderCreateMessage(lower string) string {
 			if atIdx := strings.Index(rest, " at "); atIdx >= 0 {
 				rest = strings.TrimSpace(rest[:atIdx])
 			}
-			return rest
+			return stripTrailingPeriodOfDay(rest)
 		}
 	}
 	return ""
+}
+
+// stripTrailingPeriodOfDay removes trailing period-of-day tokens from a reminder message.
+func stripTrailingPeriodOfDay(rest string) string {
+	periodTokens := []string{"morning", "afternoon", "evening", "noon", "tonight"}
+	for _, token := range periodTokens {
+		for _, prefix := range []string{"this ", "today "} {
+			suffix := prefix + token
+			if strings.HasSuffix(rest, " "+suffix) {
+				return strings.TrimSpace(strings.TrimSuffix(rest, " "+suffix))
+			}
+		}
+		if strings.HasSuffix(rest, " "+token) {
+			return strings.TrimSpace(strings.TrimSuffix(rest, " "+token))
+		}
+	}
+	return rest
 }
 
 func extractReminderDeleteMessage(lower string) string {
@@ -269,6 +282,9 @@ func parseReminderTimeFromText(lower string) string {
 		if parsedHour, parsedMinute, ok := parseClock(segment); ok {
 			hour, minute = parsedHour, parsedMinute
 		}
+	} else if periodHour, ok := periodOfDayHour(lower); ok {
+		// Period-of-day defaults (UTC): morning 09:00, noon 12:00, afternoon 14:00, evening/tonight 18:00.
+		hour = periodHour
 	}
 
 	now := time.Now().UTC()
@@ -279,6 +295,26 @@ func parseReminderTimeFromText(lower string) string {
 		target = target.Add(24 * time.Hour)
 	}
 	return target.Format(time.RFC3339)
+}
+
+// periodOfDayHour maps period-of-day tokens in text to a default hour (UTC).
+func periodOfDayHour(lower string) (hour int, ok bool) {
+	// Check longer/more specific tokens first (e.g. "afternoon" before "noon" substring issues).
+	for _, entry := range []struct {
+		token string
+		hour  int
+	}{
+		{"afternoon", 14},
+		{"tonight", 18},
+		{"evening", 18},
+		{"morning", 9},
+		{"noon", 12},
+	} {
+		if strings.Contains(lower, entry.token) {
+			return entry.hour, true
+		}
+	}
+	return 0, false
 }
 
 func parseClock(segment string) (hour, minute int, ok bool) {

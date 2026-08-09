@@ -3,6 +3,7 @@ package llm
 import (
 	"context"
 	"testing"
+	"time"
 )
 
 func TestMockClassifierRecordsInput(t *testing.T) {
@@ -115,5 +116,88 @@ func TestMockClassifierMatchesReminderIntents(t *testing.T) {
 	}
 	if deleteResult.Arguments["operation"] != "delete" || deleteResult.Arguments["message"] != "call mom" {
 		t.Fatalf("delete args: %+v", deleteResult.Arguments)
+	}
+}
+
+func TestMockClassifierAfternoonReminder(t *testing.T) {
+	mock := NewMockClassifier()
+	result, err := mock.Classify(context.Background(), ClassifyRequest{
+		Text: "remind me to buy groceries afternoon",
+		Plugins: []PluginCandidate{{
+			Slug:     "reminder",
+			Triggers: []string{"remind me", "list reminders", "delete reminder"},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Matched || result.PluginSlug != "reminder" {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	if result.Arguments["operation"] != "create" {
+		t.Fatalf("operation = %v", result.Arguments["operation"])
+	}
+	if result.Arguments["message"] != "buy groceries" {
+		t.Fatalf("message = %v, want %q", result.Arguments["message"], "buy groceries")
+	}
+	remindAt, ok := result.Arguments["remind_at"].(string)
+	if !ok || remindAt == "" {
+		t.Fatal("expected remind_at")
+	}
+	parsed, err := time.Parse(time.RFC3339, remindAt)
+	if err != nil {
+		t.Fatalf("remind_at not valid RFC3339: %v", err)
+	}
+	if parsed.Hour() != 14 {
+		t.Fatalf("remind_at hour = %d, want 14", parsed.Hour())
+	}
+}
+
+func TestMockClassifierAfternoonNotRoutedToLocationReminder(t *testing.T) {
+	mock := NewMockClassifier()
+	result, err := mock.Classify(context.Background(), ClassifyRequest{
+		Text: "remind me to buy groceries afternoon",
+		Plugins: []PluginCandidate{
+			{
+				Slug:     "reminder",
+				Triggers: []string{"remind me", "list reminders", "delete reminder"},
+			},
+			{
+				Slug:     "set-reminder",
+				Triggers: []string{"remind me", "set a location reminder"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Matched || result.PluginSlug != "reminder" {
+		t.Fatalf("expected reminder plugin, got: %+v", result)
+	}
+	if result.Arguments["message"] != "buy groceries" {
+		t.Fatalf("message = %v, want %q", result.Arguments["message"], "buy groceries")
+	}
+	if _, hasTitle := result.Arguments["title"]; hasTitle {
+		t.Fatalf("expected message (not title), got title: %v", result.Arguments["title"])
+	}
+}
+
+func TestMockClassifierLocationReminderStillRoutes(t *testing.T) {
+	mock := NewMockClassifier()
+	result, err := mock.Classify(context.Background(), ClassifyRequest{
+		Text: "remind me to buy candy",
+		Plugins: []PluginCandidate{{
+			Slug:     "set-reminder",
+			Triggers: []string{"remind me", "set a location reminder"},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Matched || result.PluginSlug != "set-reminder" {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	if result.Arguments["title"] != "buy candy" {
+		t.Fatalf("title = %v, want %q", result.Arguments["title"], "buy candy")
 	}
 }
