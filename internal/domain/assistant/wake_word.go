@@ -4,10 +4,13 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/cymonevo/go_template/internal/domain/assistant/builtin"
 	"github.com/cymonevo/go_template/internal/domain/plugin"
 )
+
+const remindAtUnparseablePrompt = "I couldn't understand that time. Try something like '3pm today', 'this afternoon', or 'tomorrow morning'."
 
 var confirmationYes = regexp.MustCompile(`(?i)^\s*(yes|yeah|yep|y|confirm|ok|okay|sure|do it|go ahead)\s*[.!]?\s*$`)
 var confirmationNo = regexp.MustCompile(`(?i)^\s*(no|nah|nope|n|cancel|stop|don't|do not)\s*[.!]?\s*$`)
@@ -160,6 +163,88 @@ func inferReminderFilter(text string, args map[string]any) {
 	default:
 		args["filter"] = "today"
 	}
+}
+
+func normalizeReminderRemindAt(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", fmt.Errorf("remind_at is required")
+	}
+	t, err := builtin.ParseDateTime(raw, time.UTC)
+	if err != nil {
+		return "", err
+	}
+	return t.UTC().Format(time.RFC3339), nil
+}
+
+func splitMessageAndRemindAt(text string) (message string, remindAtClause string) {
+	lower := strings.ToLower(strings.TrimSpace(text))
+	if lower == "" {
+		return text, ""
+	}
+
+	periodTokens := []string{"morning", "afternoon", "evening", "noon", "tonight"}
+	for _, token := range periodTokens {
+		for _, prefix := range []string{"this ", "today "} {
+			suffix := prefix + token
+			if strings.HasSuffix(lower, " "+suffix) {
+				idx := len(lower) - len(" "+suffix)
+				return strings.TrimSpace(text[:idx]), strings.TrimSpace(text[idx:])
+			}
+		}
+		if strings.HasSuffix(lower, " "+token) {
+			idx := len(lower) - len(" "+token)
+			return strings.TrimSpace(text[:idx]), strings.TrimSpace(text[idx:])
+		}
+	}
+
+	if atIdx := strings.LastIndex(lower, " at "); atIdx >= 0 {
+		return strings.TrimSpace(text[:atIdx]), strings.TrimSpace(text[atIdx+4:])
+	}
+	return text, ""
+}
+
+func applyReminderFollowUp(missingArg, text string, args map[string]any) (bool, string) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return false, remindAtUnparseablePrompt
+	}
+
+	switch missingArg {
+	case "message":
+		message, clause := splitMessageAndRemindAt(text)
+		args["message"] = message
+		if clause == "" {
+			return true, ""
+		}
+		normalized, err := normalizeReminderRemindAt(clause)
+		if err != nil {
+			return false, remindAtUnparseablePrompt
+		}
+		args["remind_at"] = normalized
+		return true, ""
+	case "remind_at":
+		normalized, err := normalizeReminderRemindAt(text)
+		if err != nil {
+			return false, remindAtUnparseablePrompt
+		}
+		args["remind_at"] = normalized
+		return true, ""
+	default:
+		args[missingArg] = text
+		return true, ""
+	}
+}
+
+func normalizeReminderArgs(args map[string]any) (string, bool) {
+	if raw := stringArgValue(args, "remind_at"); raw != "" {
+		normalized, err := normalizeReminderRemindAt(raw)
+		if err != nil {
+			return remindAtUnparseablePrompt, false
+		}
+		args["remind_at"] = normalized
+	}
+	return "", true
 }
 
 func firstMissingReminderArgument(operation string, args map[string]any) (string, string) {

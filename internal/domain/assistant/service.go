@@ -249,6 +249,25 @@ func (s *Service) handlePendingAction(ctx context.Context, userID string, sessio
 				pending.Arguments[pending.MissingArgument] = strings.TrimSpace(text)
 				pending.MissingArgument = ""
 			}
+		} else if isReminderPlugin(eligible.catalog) {
+			ok, prompt := applyReminderFollowUp(pending.MissingArgument, text, pending.Arguments)
+			if !ok {
+				return Reply{
+						Type: ReplyTypeFollowUp,
+						Text: prompt,
+						Action: &ActionInfo{
+							PluginSlug: eligible.catalog.Slug,
+							Status:     ActionStatusPending,
+						},
+					}, &PendingAction{
+						PluginSlug:      pending.PluginSlug,
+						PluginID:        pending.PluginID,
+						InstallID:       pending.InstallID,
+						Arguments:       pending.Arguments,
+						MissingArgument: "remind_at",
+					}, SessionStatusActive, nil
+			}
+			pending.MissingArgument = ""
 		} else {
 			pending.Arguments[pending.MissingArgument] = strings.TrimSpace(text)
 			pending.MissingArgument = ""
@@ -338,6 +357,33 @@ func (s *Service) advancePlugin(ctx context.Context, userID string, eligible eli
 		args["operation"] = operation
 		if operation == "list" {
 			inferReminderFilter(text, args)
+		}
+
+		if operation == "create" {
+			if msg := stringArgValue(args, "message"); msg != "" && stringArgValue(args, "remind_at") == "" {
+				splitMsg, clause := splitMessageAndRemindAt(msg)
+				if clause != "" {
+					args["message"] = splitMsg
+					args["remind_at"] = clause
+				}
+			}
+			if prompt, ok := normalizeReminderArgs(args); !ok {
+				pending := &PendingAction{
+					PluginSlug:      eligible.catalog.Slug,
+					PluginID:        eligible.catalog.ID,
+					InstallID:       eligible.install.ID,
+					Arguments:       args,
+					MissingArgument: "remind_at",
+				}
+				return Reply{
+					Type: ReplyTypeFollowUp,
+					Text: prompt,
+					Action: &ActionInfo{
+						PluginSlug: eligible.catalog.Slug,
+						Status:     ActionStatusPending,
+					},
+				}, pending, SessionStatusActive, nil
+			}
 		}
 
 		missingName, prompt := firstMissingReminderArgument(operation, args)
