@@ -1,0 +1,29 @@
+[
+  {
+    "update": "plugins",
+    "updates": [
+      {
+        "q": { "slug": "reminder" },
+        "u": {
+          "$set": {
+            "manifest.arguments": [
+              {
+                "name": "message",
+                "type": "string",
+                "required": false,
+                "prompt": "What should I remind you about?"
+              },
+              {
+                "name": "remind_at",
+                "type": "datetime",
+                "required": false,
+                "prompt": "When should I remind you?"
+              }
+            ],
+            "updated_at": { "$date": "2026-08-09T00:00:00.000Z" }
+          }
+        }
+      }
+    ]
+  }
+]
