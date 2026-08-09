@@ -20,8 +20,9 @@ const (
 	defaultOpenAIModel   = "gpt-4o-mini"
 )
 
-// OpenAIClassifier classifies intents via the OpenAI Chat Completions API.
-type OpenAIClassifier struct {
+// PluginDelegationAgent semantically routes user input to installed plugins.
+type PluginDelegationAgent struct {
+	Provider   string
 	APIKey     string
 	Model      string
 	BaseURL    string
@@ -55,45 +56,53 @@ type openAIChatResponse struct {
 	} `json:"error"`
 }
 
-type openAIClassifyResponse struct {
+type delegationClassifyResponse struct {
 	Matched    bool           `json:"matched"`
 	PluginSlug string         `json:"plugin_slug"`
 	Arguments  map[string]any `json:"arguments"`
 }
 
-// Classify calls OpenAI to pick a plugin, then falls back to trigger matching.
-func (c *OpenAIClassifier) Classify(ctx context.Context, req ClassifyRequest) (*ClassifyResult, error) {
-	if c.APIKey == "" {
+// Classify routes the request to the configured provider.
+func (a *PluginDelegationAgent) Classify(ctx context.Context, req ClassifyRequest) (*ClassifyResult, error) {
+	switch a.Provider {
+	case "openai":
+		return a.classifyOpenAI(ctx, req)
+	case "mock":
+		return mockSemanticClassify(req), nil
+	default:
+		return mockSemanticClassify(req), nil
+	}
+}
+
+func (a *PluginDelegationAgent) classifyOpenAI(ctx context.Context, req ClassifyRequest) (*ClassifyResult, error) {
+	if a.APIKey == "" {
 		return nil, fmt.Errorf("llm: openai api key not configured")
 	}
 
-	parsed, err := c.classifyWithOpenAI(ctx, req)
-	if err != nil {
-		log.Printf("llm: openai classification failed: %v", err)
-		return nil, err
-	}
-	if parsed != nil && parsed.Matched {
-		return parsed, nil
-	}
-
-	if fallback := matchByTriggers(req); fallback.Matched {
-		return fallback, nil
-	}
-	return &ClassifyResult{Matched: false}, nil
-}
-
-func (c *OpenAIClassifier) classifyWithOpenAI(ctx context.Context, req ClassifyRequest) (*ClassifyResult, error) {
-	model := c.Model
+	model := a.Model
 	if model == "" {
 		model = defaultOpenAIModel
 	}
 
+	messages := []openAIChatMessage{
+		{Role: "system", Content: buildDelegationSystemPrompt(req.Plugins)},
+	}
+	for _, turn := range req.RecentMessages {
+		role := strings.TrimSpace(turn.Role)
+		if role != "user" && role != "assistant" {
+			continue
+		}
+		content := strings.TrimSpace(turn.Content)
+		if content == "" {
+			continue
+		}
+		messages = append(messages, openAIChatMessage{Role: role, Content: content})
+	}
+	messages = append(messages, openAIChatMessage{Role: "user", Content: req.Text})
+
 	payload := openAIChatRequest{
-		Model: model,
-		Messages: []openAIChatMessage{
-			{Role: "system", Content: buildOpenAISystemPrompt(req.Plugins)},
-			{Role: "user", Content: req.Text},
-		},
+		Model:          model,
+		Messages:       messages,
 		Temperature:    0,
 		ResponseFormat: openAIResponseFormat{Type: "json_object"},
 	}
@@ -103,7 +112,7 @@ func (c *OpenAIClassifier) classifyWithOpenAI(ctx context.Context, req ClassifyR
 		return nil, fmt.Errorf("marshal openai request: %w", err)
 	}
 
-	baseURL := strings.TrimRight(c.BaseURL, "/")
+	baseURL := strings.TrimRight(a.BaseURL, "/")
 	if baseURL == "" {
 		baseURL = defaultOpenAIBaseURL
 	}
@@ -112,16 +121,17 @@ func (c *OpenAIClassifier) classifyWithOpenAI(ctx context.Context, req ClassifyR
 	if err != nil {
 		return nil, fmt.Errorf("build openai request: %w", err)
 	}
-	httpReq.Header.Set("Authorization", "Bearer "+c.APIKey)
+	httpReq.Header.Set("Authorization", "Bearer "+a.APIKey)
 	httpReq.Header.Set("Content-Type", "application/json")
 
-	client := c.HTTPClient
+	client := a.HTTPClient
 	if client == nil {
 		client = &http.Client{Timeout: 30 * time.Second}
 	}
 
 	resp, err := client.Do(httpReq)
 	if err != nil {
+		log.Printf("llm: openai classification failed: %v", err)
 		return nil, fmt.Errorf("openai request: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
@@ -146,7 +156,7 @@ func (c *OpenAIClassifier) classifyWithOpenAI(ctx context.Context, req ClassifyR
 	}
 
 	content := strings.TrimSpace(chatResp.Choices[0].Message.Content)
-	var parsed openAIClassifyResponse
+	var parsed delegationClassifyResponse
 	if err := json.Unmarshal([]byte(content), &parsed); err != nil {
 		return nil, fmt.Errorf("decode classifier json: %w", err)
 	}
@@ -154,12 +164,16 @@ func (c *OpenAIClassifier) classifyWithOpenAI(ctx context.Context, req ClassifyR
 		return &ClassifyResult{Matched: false}, nil
 	}
 
-	return validateOpenAIResult(req.Plugins, parsed)
+	return validateDelegationResult(req.Plugins, parsed)
 }
 
-func buildOpenAISystemPrompt(plugins []PluginCandidate) string {
+func buildDelegationSystemPrompt(plugins []PluginCandidate) string {
 	var b strings.Builder
-	b.WriteString("Classify the user message into one plugin or none. ")
+	b.WriteString("You are a plugin delegation agent. Read the user message")
+	b.WriteString(" (and any recent conversation turns) and decide whether exactly one installed plugin can fulfill the request.\n")
+	b.WriteString("Compare the request against each candidate plugin's name, description, and argument definitions.\n")
+	b.WriteString("Do not require exact trigger phrase matches; paraphrases and synonyms are valid.\n")
+	b.WriteString("When confident, extract argument values from the message.\n")
 	b.WriteString("Reply with strict JSON only:\n")
 	b.WriteString(`{"matched":true,"plugin_slug":"<slug>","arguments":{...}} or {"matched":false}` + "\n")
 	b.WriteString("plugin_slug must be one of the listed slugs. ")
@@ -171,8 +185,14 @@ func buildOpenAISystemPrompt(plugins []PluginCandidate) string {
 		b.WriteString(p.Slug)
 		b.WriteString(", name: ")
 		b.WriteString(p.Name)
-		b.WriteString(", triggers: ")
-		writeJSONValue(&b, p.Triggers)
+		if desc := strings.TrimSpace(p.Description); desc != "" {
+			b.WriteString(", description: ")
+			b.WriteString(desc)
+		}
+		if len(p.Triggers) > 0 {
+			b.WriteString(", example phrases (hints only, not required): ")
+			writeJSONValue(&b, p.Triggers)
+		}
 		b.WriteString(", arguments: ")
 		writeJSONValue(&b, p.Arguments)
 		b.WriteByte('\n')
@@ -189,7 +209,7 @@ func writeJSONValue(b *strings.Builder, v any) {
 	b.Write(data)
 }
 
-func validateOpenAIResult(plugins []PluginCandidate, parsed openAIClassifyResponse) (*ClassifyResult, error) {
+func validateDelegationResult(plugins []PluginCandidate, parsed delegationClassifyResponse) (*ClassifyResult, error) {
 	slug := strings.TrimSpace(parsed.PluginSlug)
 	if slug == "" {
 		return &ClassifyResult{Matched: false}, nil
@@ -315,11 +335,15 @@ func truncateForLog(s string) string {
 // NewClassifier builds a Classifier from provider configuration.
 func NewClassifier(provider, apiKey, model string) Classifier {
 	switch provider {
-	case "mock":
-		return NewMockClassifier()
 	case "openai":
-		return &OpenAIClassifier{APIKey: apiKey, Model: model}
+		return &PluginDelegationAgent{
+			Provider: "openai",
+			APIKey:   apiKey,
+			Model:    model,
+		}
+	case "mock":
+		return &PluginDelegationAgent{Provider: "mock"}
 	default:
-		return NewMockClassifier()
+		return &PluginDelegationAgent{Provider: "mock"}
 	}
 }

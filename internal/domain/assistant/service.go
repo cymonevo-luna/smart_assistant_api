@@ -310,10 +310,11 @@ func (s *Service) classifyAndExecute(ctx context.Context, userID, text string) (
 	candidates := make([]llm.PluginCandidate, 0, len(eligible))
 	for _, e := range eligible {
 		candidates = append(candidates, llm.PluginCandidate{
-			Slug:      e.catalog.Slug,
-			Name:      e.catalog.Name,
-			Triggers:  e.catalog.Manifest.Triggers,
-			Arguments: e.catalog.Manifest.Arguments,
+			Slug:        e.catalog.Slug,
+			Name:        e.catalog.Name,
+			Description: e.catalog.Description,
+			Triggers:    e.catalog.Manifest.Triggers,
+			Arguments:   e.catalog.Manifest.Arguments,
 		})
 	}
 
