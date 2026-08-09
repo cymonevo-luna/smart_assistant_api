@@ -11,6 +11,7 @@ import (
 	"github.com/cymonevo/go_template/internal/domain/calendar/availability"
 	"github.com/cymonevo/go_template/internal/domain/plugin"
 	"github.com/cymonevo/go_template/internal/domain/plugin_credential"
+	"github.com/cymonevo/go_template/internal/domain/plugin_setup/composio_form"
 	"github.com/cymonevo/go_template/internal/domain/plugin_setup/oauth_google"
 	"github.com/cymonevo/go_template/internal/domain/reminder"
 	"github.com/cymonevo/go_template/internal/domain/user"
@@ -62,6 +63,7 @@ type Container struct {
 	ReminderService          *reminder.Service
 	ReminderRepo             reminder.Repository
 	GoogleOAuthSetupService  *oauthgoogle.Service
+	ComposioFormSetupService *composioform.Service
 	PlacesProvider           places.Provider
 	CalendarAvailability     availability.AvailabilityService
 
@@ -149,6 +151,14 @@ func BuildContainer(ctx context.Context, cfg *config.Config, log logger.Logger) 
 		pluginRepo,
 		c.PluginCredentialService,
 		googleExchanger,
+	)
+
+	c.ComposioFormSetupService = composioform.NewService(
+		composioform.Config{BaseURL: c.Cfg.Composio.BaseURL},
+		userPluginRepo,
+		pluginRepo,
+		c.PluginCredentialService,
+		nil,
 	)
 
 	placesProvider, err := places.NewProvider(places.Config{

@@ -12,8 +12,12 @@ import (
 	"time"
 )
 
-const findFreeSlotsTool = "GOOGLECALENDAR_FIND_FREE_SLOTS"
-const createEventTool = "GOOGLECALENDAR_CREATE_EVENT"
+const (
+	findFreeSlotsTool         = "GOOGLECALENDAR_FIND_FREE_SLOTS"
+	createEventTool           = "GOOGLECALENDAR_CREATE_EVENT"
+	mockValidComposioAPIKey   = "mock-valid-composio-key"
+	mockInvalidComposioAPIKey = "invalid-composio-key"
+)
 
 // mockComposio records execute calls and can be toggled to return HTTP 500.
 type mockComposio struct {
@@ -80,6 +84,11 @@ func (m *mockComposio) ToolCallCount(tool string) int {
 }
 
 func (m *mockComposio) handle(w http.ResponseWriter, r *http.Request) {
+	if strings.HasPrefix(r.URL.Path, "/api/v3.1/connected_accounts") {
+		m.handleConnectedAccounts(w, r)
+		return
+	}
+
 	body, _ := io.ReadAll(r.Body)
 	var req map[string]any
 	_ = json.Unmarshal(body, &req)
@@ -148,6 +157,24 @@ func (m *mockComposio) writeFindFreeSlotsResponse(w http.ResponseWriter) {
 	})
 	w.Header().Set("Content-Type", "application/json")
 	_, _ = w.Write(resp)
+}
+
+func (m *mockComposio) handleConnectedAccounts(w http.ResponseWriter, r *http.Request) {
+	apiKey := r.Header.Get("x-api-key")
+	if apiKey == mockInvalidComposioAPIKey {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":{"message":"invalid api key","status":401}}`))
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write([]byte(`{
+		"items": [
+			{"id":"ca_github","status":"ACTIVE","toolkit":{"slug":"github"},"alias":"work"},
+			{"id":"ca_gmail","status":"ACTIVE","toolkit":{"slug":"gmail"}}
+		],
+		"next_cursor": null
+	}`))
 }
 
 func (m *mockComposio) writeEmptyFreeSlotsResponse(w http.ResponseWriter) {
