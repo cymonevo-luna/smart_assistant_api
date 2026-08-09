@@ -34,6 +34,9 @@ type PendingAction struct {
 	Arguments            map[string]any `json:"arguments"`
 	MissingArgument      string         `json:"missing_argument,omitempty"`
 	AwaitingConfirmation bool           `json:"awaiting_confirmation,omitempty"`
+	ComposioSessionID    string         `json:"composio_session_id,omitempty"`
+	ComposioPendingKind  string         `json:"composio_pending_kind,omitempty"`
+	ComposioPrompt       string         `json:"composio_prompt,omitempty"`
 }
 
 // Session is a multi-turn assistant conversation owned by a user.

@@ -173,9 +173,11 @@ func BuildContainer(ctx context.Context, cfg *config.Config, log logger.Logger) 
 	c.PlacesProvider = places.NewCachingProvider(placesProvider, 5*time.Minute)
 
 	classifier := llm.NewClassifier(c.Cfg.LLM.Provider, c.Cfg.LLM.APIKey, c.Cfg.LLM.Model)
+	composioAgent := llm.NewComposioAgent(c.Cfg.LLM.Provider, c.Cfg.LLM.APIKey, c.Cfg.LLM.Model)
 	stubExecutor := assistant.NewStubExecutor(log)
 	builtinExecutor := assistant.NewBuiltinExecutor(c.ReminderService, c.AssistantSettingsService, c.PlacesProvider, log)
 	var composioExec *assistant.ComposioExecutor
+	var composioMCPExec *assistant.ComposioMCPExecutor
 	if c.Cfg.Composio.APIKey != "" {
 		composioClient := composio.New(composio.Config{
 			APIKey:  c.Cfg.Composio.APIKey,
@@ -185,7 +187,8 @@ func BuildContainer(ctx context.Context, cfg *config.Config, log logger.Logger) 
 		c.CalendarAvailability = availability.NewService(composioClient)
 		c.Log.Info("composio client ready")
 	}
-	executor := assistant.NewRoutingExecutor(composioExec, builtinExecutor, stubExecutor)
+	composioMCPExec = assistant.NewComposioMCPExecutor(c.PluginCredentialService, composioAgent, nil, log)
+	executor := assistant.NewRoutingExecutor(composioExec, composioMCPExec, builtinExecutor, stubExecutor)
 
 	assistantSessionRepo := assistant.NewSessionRepository(assistantSessionStore)
 	assistantMessageRepo := assistant.NewMessageRepository(assistantMessageStore)
