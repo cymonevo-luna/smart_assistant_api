@@ -218,6 +218,10 @@ func (s *Service) handlePendingAction(ctx context.Context, userID string, sessio
 		return Reply{}, nil, SessionStatusActive, err
 	}
 
+	if pending.ComposioSessionID != "" {
+		return s.handleComposioPendingAction(ctx, userID, eligible, pending, text)
+	}
+
 	if pending.AwaitingConfirmation {
 		if isConfirmationYes(text) {
 			return s.executePlugin(ctx, userID, eligible, pending.Arguments)
@@ -477,6 +481,12 @@ func (s *Service) advancePlugin(ctx context.Context, userID string, eligible eli
 		return s.advanceGoogleCalendarMeet(ctx, userID, eligible, args, text)
 	}
 
+	if isComposioAIPlugin(eligible.catalog) {
+		args["task"] = text
+		args["user_message"] = text
+		return s.executePlugin(ctx, userID, eligible, args)
+	}
+
 	if isLocationReminderPlugin(eligible.catalog) {
 		inferLocationReminderFromText(text, args)
 
@@ -572,6 +582,21 @@ func (s *Service) executePlugin(ctx context.Context, userID string, eligible eli
 
 	result, err := s.executor.Execute(ctx, userID, eligible.catalog, execArgs)
 	if err != nil {
+		if isComposioAIPlugin(eligible.catalog) && errors.Is(err, ErrComposioSetupIncomplete) {
+			return Reply{
+				Type: ReplyTypeText,
+				Text: fmt.Sprintf("%s is installed but still needs setup before I can help with that.", eligible.catalog.Name),
+				Action: &ActionInfo{
+					PluginSlug: eligible.catalog.Slug,
+					Status:     ActionStatusPending,
+					Payload: map[string]any{
+						"reason":      actionReasonSetupIncomplete,
+						"install_id":  eligible.install.ID,
+						"plugin_slug": eligible.catalog.Slug,
+					},
+				},
+			}, nil, SessionStatusActive, nil
+		}
 		errText := builtin.ExecutorErrorText(err)
 		if isLocationReminderPlugin(eligible.catalog) {
 			errText = builtin.LocationReminderExecutorErrorText(err)
@@ -584,6 +609,10 @@ func (s *Service) executePlugin(ctx context.Context, userID string, eligible eli
 				Status:     ActionStatusFailed,
 			},
 		}, nil, SessionStatusActive, nil
+	}
+
+	if isComposioAIPlugin(eligible.catalog) {
+		return s.mapComposioExecutorResult(eligible, args, result)
 	}
 
 	replyText := fmt.Sprintf("Done. %s completed successfully.", eligible.catalog.Name)
@@ -758,4 +787,124 @@ func (s *Service) loadEligiblePlugin(ctx context.Context, userID, pluginID, inst
 		return eligiblePlugin{}, response.NewBadRequest("plugin setup is incomplete")
 	}
 	return eligiblePlugin{install: install, catalog: catalog}, nil
+}
+
+func (s *Service) handleComposioPendingAction(ctx context.Context, userID string, eligible eligiblePlugin, pending *PendingAction, text string) (Reply, *PendingAction, SessionStatus, error) {
+	args := cloneArgs(pending.Arguments)
+	args["composio_session_id"] = pending.ComposioSessionID
+	args["user_message"] = strings.TrimSpace(text)
+
+	switch pending.ComposioPendingKind {
+	case "confirmation":
+		if isConfirmationYes(text) {
+			args["confirmed"] = true
+			return s.executePlugin(ctx, userID, eligible, args)
+		}
+		if isConfirmationNo(text) {
+			return Reply{
+				Type: ReplyTypeText,
+				Text: "Okay, I won't do that.",
+			}, nil, SessionStatusActive, nil
+		}
+		prompt := pending.ComposioPrompt
+		if prompt == "" {
+			prompt = "Should I go ahead?"
+		}
+		return Reply{
+			Type: ReplyTypeConfirmation,
+			Text: prompt,
+			Action: &ActionInfo{
+				PluginSlug: eligible.catalog.Slug,
+				Status:     ActionStatusPending,
+			},
+		}, pending, SessionStatusActive, nil
+	case "input", "auth":
+		return s.executePlugin(ctx, userID, eligible, args)
+	default:
+		return s.executePlugin(ctx, userID, eligible, args)
+	}
+}
+
+func (s *Service) mapComposioExecutorResult(eligible eligiblePlugin, args map[string]any, result map[string]any) (Reply, *PendingAction, SessionStatus, error) {
+	if result == nil {
+		return Reply{
+			Type: ReplyTypeActionResult,
+			Text: "Something went wrong while running that task.",
+			Action: &ActionInfo{
+				PluginSlug: eligible.catalog.Slug,
+				Status:     ActionStatusFailed,
+			},
+		}, nil, SessionStatusActive, nil
+	}
+
+	if status, _ := result["status"].(string); status != "" {
+		prompt, _ := result["prompt"].(string)
+		sessionID, _ := result["composio_session_id"].(string)
+		pendingKind := composioPendingKindFromStatus(status)
+
+		replyType := ReplyTypeFollowUp
+		if status == "needs_confirmation" {
+			replyType = ReplyTypeConfirmation
+		}
+
+		pending := &PendingAction{
+			PluginSlug:          eligible.catalog.Slug,
+			PluginID:            eligible.catalog.ID,
+			InstallID:           eligible.install.ID,
+			Arguments:           cloneArgs(args),
+			ComposioSessionID:   sessionID,
+			ComposioPendingKind: pendingKind,
+			ComposioPrompt:      prompt,
+		}
+
+		actionPayload := map[string]any(nil)
+		if status == "needs_auth" {
+			if authURL, _ := result["auth_url"].(string); authURL != "" {
+				actionPayload = map[string]any{"auth_url": authURL}
+			}
+		}
+
+		action := &ActionInfo{
+			PluginSlug: eligible.catalog.Slug,
+			Status:     ActionStatusPending,
+			Payload:    actionPayload,
+		}
+
+		return Reply{
+			Type:   replyType,
+			Text:   prompt,
+			Action: action,
+		}, pending, SessionStatusActive, nil
+	}
+
+	replyText := fmt.Sprintf("Done. %s completed successfully.", eligible.catalog.Name)
+	if custom, ok := result["reply_text"].(string); ok && strings.TrimSpace(custom) != "" {
+		replyText = custom
+	}
+
+	successful, _ := result["successful"].(bool)
+	actionStatus := ActionStatusSuccess
+	if !successful {
+		actionStatus = ActionStatusFailed
+	}
+
+	return Reply{
+		Type: ReplyTypeActionResult,
+		Text: replyText,
+		Action: &ActionInfo{
+			PluginSlug: eligible.catalog.Slug,
+			Status:     actionStatus,
+		},
+	}, nil, SessionStatusActive, nil
+}
+
+func composioPendingKindFromStatus(status string) string {
+	switch status {
+	case "needs_confirmation":
+		return "confirmation"
+	case "needs_auth":
+		return "auth"
+	default:
+		return "input"
+	}
 }

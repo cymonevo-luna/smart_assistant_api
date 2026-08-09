@@ -29,7 +29,7 @@ func TestRoutingExecutorBuiltinReminderAdapter(t *testing.T) {
 		},
 	}
 
-	router := NewRoutingExecutor(nil, builtinExec, NewStubExecutor(log))
+	router := NewRoutingExecutor(nil, nil, builtinExec, NewStubExecutor(log))
 	result, err := router.Execute(context.Background(), "user-1", p, map[string]any{
 		"operation":  "create",
 		"message":    "call mom",

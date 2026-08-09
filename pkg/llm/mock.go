@@ -65,6 +65,11 @@ func mockSemanticClassify(req ClassifyRequest) *ClassifyResult {
 			return result
 		}
 	}
+	for _, p := range req.Plugins {
+		if result := matchComposioAIIntent(lower, p); result != nil {
+			return result
+		}
+	}
 	return &ClassifyResult{Matched: false}
 }
 
@@ -386,6 +391,37 @@ func matchCalendarIntent(lower string, p PluginCandidate) *ClassifyResult {
 
 func isCalendarMeetSlug(slug string) bool {
 	return slug == "google-calendar-meet" || strings.HasPrefix(slug, "google-calendar-meet-")
+}
+
+func matchComposioAIIntent(lower string, p PluginCandidate) *ClassifyResult {
+	if p.Slug != "composio-ai" {
+		return nil
+	}
+	cues := []string{
+		"create a github issue",
+		"create github issue",
+		"github issue",
+		"help me",
+		"can you",
+		"please create",
+		"send ",
+		"schedule ",
+		"post ",
+		"update ",
+		"delete ",
+		"sync ",
+		"automate ",
+	}
+	for _, cue := range cues {
+		if strings.Contains(lower, cue) {
+			return &ClassifyResult{
+				Matched:    true,
+				PluginSlug: p.Slug,
+				Arguments:  map[string]any{"task": strings.TrimSpace(lower)},
+			}
+		}
+	}
+	return nil
 }
 
 func parseReminderTimeFromText(lower string) string {

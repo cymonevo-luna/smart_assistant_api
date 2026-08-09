@@ -167,14 +167,15 @@ func mapBuiltinAdapterArgs(p *plugin.Plugin, args map[string]any) (map[string]an
 
 // RoutingExecutor dispatches to the correct backend by manifest executor type.
 type RoutingExecutor struct {
-	composio *ComposioExecutor
-	builtin  *BuiltinExecutor
-	stub     *StubExecutor
+	composio    *ComposioExecutor
+	composioMCP *ComposioMCPExecutor
+	builtin     *BuiltinExecutor
+	stub        *StubExecutor
 }
 
 // NewRoutingExecutor builds an executor that prefers composio when available.
-func NewRoutingExecutor(composio *ComposioExecutor, builtinExec *BuiltinExecutor, stub *StubExecutor) *RoutingExecutor {
-	return &RoutingExecutor{composio: composio, builtin: builtinExec, stub: stub}
+func NewRoutingExecutor(composio *ComposioExecutor, composioMCP *ComposioMCPExecutor, builtinExec *BuiltinExecutor, stub *StubExecutor) *RoutingExecutor {
+	return &RoutingExecutor{composio: composio, composioMCP: composioMCP, builtin: builtinExec, stub: stub}
 }
 
 // Execute routes execution based on manifest executor type.
@@ -183,6 +184,11 @@ func (r *RoutingExecutor) Execute(ctx context.Context, userID string, p *plugin.
 	case plugin.ExecutorTypeComposio:
 		if r.composio != nil {
 			return r.composio.Execute(ctx, userID, p, args)
+		}
+		return r.stub.Execute(ctx, userID, p, args)
+	case plugin.ExecutorTypeComposioMCP:
+		if r.composioMCP != nil {
+			return r.composioMCP.Execute(ctx, userID, p, args)
 		}
 		return r.stub.Execute(ctx, userID, p, args)
 	case plugin.ExecutorTypeBuiltin:

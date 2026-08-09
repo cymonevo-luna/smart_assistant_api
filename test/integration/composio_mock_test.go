@@ -4,6 +4,7 @@ package integration
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -27,10 +28,19 @@ type mockComposio struct {
 	emptyFreeSlots bool
 	lastReq        map[string]any
 	requests       []map[string]any
+	sessionCounter int
+	sessions       map[string]*mockComposioSession
+	mcpScenario    string
+}
+
+type mockComposioSession struct {
+	id         string
+	metaCalls  int
+	needsInput bool
 }
 
 func newMockComposio() *mockComposio {
-	m := &mockComposio{}
+	m := &mockComposio{sessions: map[string]*mockComposioSession{}}
 	m.server = httptest.NewServer(http.HandlerFunc(m.handle))
 	return m
 }
@@ -49,6 +59,19 @@ func (m *mockComposio) SetEmptyFreeSlots(v bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.emptyFreeSlots = v
+}
+
+func (m *mockComposio) SetMCPScenario(scenario string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.mcpScenario = scenario
+}
+
+func (m *mockComposio) ResetMCPScenario() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.mcpScenario = ""
+	m.sessions = map[string]*mockComposioSession{}
 }
 
 func (m *mockComposio) ResetRequests() {
@@ -88,6 +111,10 @@ func (m *mockComposio) handle(w http.ResponseWriter, r *http.Request) {
 		m.handleConnectedAccounts(w, r)
 		return
 	}
+	if strings.HasPrefix(r.URL.Path, "/api/v3.1/tool_router/session") {
+		m.handleToolRouterSession(w, r)
+		return
+	}
 
 	body, _ := io.ReadAll(r.Body)
 	var req map[string]any
@@ -120,6 +147,86 @@ func (m *mockComposio) handle(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_, _ = w.Write([]byte(`{"successful":true,"data":{}}`))
+}
+
+func (m *mockComposio) handleToolRouterSession(w http.ResponseWriter, r *http.Request) {
+	m.mu.Lock()
+	fail := m.fail
+	scenario := m.mcpScenario
+	m.mu.Unlock()
+
+	if fail {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"error":"upstream failure"}`))
+		return
+	}
+
+	path := r.URL.Path
+	switch {
+	case path == "/api/v3.1/tool_router/session" && r.Method == http.MethodPost:
+		m.mu.Lock()
+		m.sessionCounter++
+		sessionID := fmt.Sprintf("trs_mock_%d", m.sessionCounter)
+		m.sessions[sessionID] = &mockComposioSession{id: sessionID}
+		m.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"session_id":"` + sessionID + `"}`))
+		return
+	case strings.HasSuffix(path, "/attach"):
+		parts := strings.Split(path, "/")
+		sessionID := parts[len(parts)-2]
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"session_id":"` + sessionID + `"}`))
+		return
+	case strings.HasSuffix(path, "/search"):
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"results":[]}`))
+		return
+	case strings.HasSuffix(path, "/execute_meta"):
+		parts := strings.Split(path, "/")
+		sessionID := parts[len(parts)-2]
+		body, _ := io.ReadAll(r.Body)
+		var req map[string]any
+		_ = json.Unmarshal(body, &req)
+		slug, _ := req["slug"].(string)
+
+		m.mu.Lock()
+		sess := m.sessions[sessionID]
+		if sess == nil {
+			sess = &mockComposioSession{id: sessionID}
+			m.sessions[sessionID] = sess
+		}
+		sess.metaCalls++
+		metaCalls := sess.metaCalls
+		m.mu.Unlock()
+
+		w.Header().Set("Content-Type", "application/json")
+		switch scenario {
+		case "needs_input_first":
+			if slug == "COMPOSIO_RUN_TASK" || metaCalls == 1 {
+				_, _ = w.Write([]byte(`{"data":{"status":"needs_input","prompt":"Which repository should I use?"},"error":null}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{"data":{"status":"completed","reply_text":"GitHub issue created successfully."},"error":null}`))
+		case "needs_confirmation":
+			_, _ = w.Write([]byte(`{"data":{"status":"needs_confirmation","prompt":"Create issue titled Bug in org/app?"},"error":null}`))
+		case "needs_confirmation_then_success":
+			if slug == "COMPOSIO_CONFIRM" {
+				_, _ = w.Write([]byte(`{"data":{"status":"completed","reply_text":"GitHub issue created successfully."},"error":null}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{"data":{"status":"needs_confirmation","prompt":"Create issue titled Bug in org/app?"},"error":null}`))
+		default:
+			_, _ = w.Write([]byte(`{"data":{"status":"completed","reply_text":"GitHub issue created successfully."},"error":null}`))
+		}
+		return
+	case strings.HasSuffix(path, "/execute"):
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"status":"completed","reply_text":"done"},"error":null}`))
+		return
+	default:
+		w.WriteHeader(http.StatusNotFound)
+	}
 }
 
 func (m *mockComposio) writeFindFreeSlotsResponse(w http.ResponseWriter) {
