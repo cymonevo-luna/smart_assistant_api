@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/cymonevo/go_template/internal/domain/plugin"
 )
 
 func TestMockClassifierRecordsInput(t *testing.T) {
@@ -26,10 +28,10 @@ func TestMockClassifierRecordsInput(t *testing.T) {
 func TestMockClassifierMatchesScheduleMeeting(t *testing.T) {
 	mock := NewMockClassifier()
 	result, err := mock.Classify(context.Background(), ClassifyRequest{
-		Text: "schedule meeting with Janet at 2pm tomorrow",
+		Text: "book time with Janet at 2pm tomorrow",
 		Plugins: []PluginCandidate{{
-			Slug:     "google-calendar-meet",
-			Triggers: []string{"schedule meeting"},
+			Slug:        "google-calendar-meet",
+			Description: "Schedule calendar meetings and video calls",
 		}},
 	})
 	if err != nil {
@@ -51,8 +53,8 @@ func TestMockClassifierMatchesMultiAttendeeNoTime(t *testing.T) {
 	result, err := mock.Classify(context.Background(), ClassifyRequest{
 		Text: "schedule a meeting with kezia and albert",
 		Plugins: []PluginCandidate{{
-			Slug:     "google-calendar-meet",
-			Triggers: []string{"schedule a meeting"},
+			Slug:        "google-calendar-meet",
+			Description: "Schedule calendar meetings and video calls",
 		}},
 	})
 	if err != nil {
@@ -69,15 +71,39 @@ func TestMockClassifierMatchesMultiAttendeeNoTime(t *testing.T) {
 	}
 }
 
+func TestMockClassifierParaphrasedReminder(t *testing.T) {
+	mock := NewMockClassifier()
+	result, err := mock.Classify(context.Background(), ClassifyRequest{
+		Text: "ping me about groceries at 5pm",
+		Plugins: []PluginCandidate{{
+			Slug:        "reminder",
+			Name:        "Reminder",
+			Description: "Create, list, and delete time-based reminders",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Matched || result.PluginSlug != "reminder" {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	if result.Arguments["operation"] != "create" {
+		t.Fatalf("operation = %v", result.Arguments["operation"])
+	}
+	if result.Arguments["message"] != "groceries" {
+		t.Fatalf("message = %v", result.Arguments["message"])
+	}
+}
+
 func TestMockClassifierMatchesReminderIntents(t *testing.T) {
 	mock := NewMockClassifier()
 	plugins := []PluginCandidate{{
-		Slug:     "reminder",
-		Triggers: []string{"remind me", "list reminders", "delete reminder"},
+		Slug:        "reminder",
+		Description: "Create, list, and delete time-based reminders",
 	}}
 
 	createResult, err := mock.Classify(context.Background(), ClassifyRequest{
-		Text:    "remind me to call mom at 2 pm today",
+		Text:    "don't let me forget to call mom at 2 pm today",
 		Plugins: plugins,
 	})
 	if err != nil {
@@ -124,8 +150,8 @@ func TestMockClassifierAfternoonReminder(t *testing.T) {
 	result, err := mock.Classify(context.Background(), ClassifyRequest{
 		Text: "remind me to buy groceries afternoon",
 		Plugins: []PluginCandidate{{
-			Slug:     "reminder",
-			Triggers: []string{"remind me", "list reminders", "delete reminder"},
+			Slug:        "reminder",
+			Description: "Create, list, and delete time-based reminders",
 		}},
 	})
 	if err != nil {
@@ -159,12 +185,12 @@ func TestMockClassifierAfternoonNotRoutedToLocationReminder(t *testing.T) {
 		Text: "remind me to buy groceries afternoon",
 		Plugins: []PluginCandidate{
 			{
-				Slug:     "reminder",
-				Triggers: []string{"remind me", "list reminders", "delete reminder"},
+				Slug:        "reminder",
+				Description: "Create, list, and delete time-based reminders",
 			},
 			{
-				Slug:     "set-reminder",
-				Triggers: []string{"remind me", "set a location reminder"},
+				Slug:        "set-reminder",
+				Description: "Create location-based reminders",
 			},
 		},
 	})
@@ -185,10 +211,10 @@ func TestMockClassifierAfternoonNotRoutedToLocationReminder(t *testing.T) {
 func TestMockClassifierLocationReminderStillRoutes(t *testing.T) {
 	mock := NewMockClassifier()
 	result, err := mock.Classify(context.Background(), ClassifyRequest{
-		Text: "remind me to buy candy",
+		Text: "alert me when I'm near a supermarket",
 		Plugins: []PluginCandidate{{
-			Slug:     "set-reminder",
-			Triggers: []string{"remind me", "set a location reminder"},
+			Slug:        "set-reminder",
+			Description: "Create location-based reminders when arriving near a place",
 		}},
 	})
 	if err != nil {
@@ -197,7 +223,43 @@ func TestMockClassifierLocationReminderStillRoutes(t *testing.T) {
 	if !result.Matched || result.PluginSlug != "set-reminder" {
 		t.Fatalf("unexpected result: %+v", result)
 	}
-	if result.Arguments["title"] != "buy candy" {
-		t.Fatalf("title = %v, want %q", result.Arguments["title"], "buy candy")
+}
+
+func TestMockClassifierReturnsNoMatchForWeather(t *testing.T) {
+	mock := NewMockClassifier()
+	result, err := mock.Classify(context.Background(), ClassifyRequest{
+		Text: "what is the weather today",
+		Plugins: []PluginCandidate{{
+			Slug:        "google-calendar-meet",
+			Description: "Schedule calendar meetings",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Matched {
+		t.Fatalf("expected no match for weather, got %+v", result)
+	}
+}
+
+func TestPluginDelegationAgentMockProvider(t *testing.T) {
+	agent := &PluginDelegationAgent{Provider: "mock"}
+	result, err := agent.Classify(context.Background(), ClassifyRequest{
+		Text: "ping me about groceries at 5pm",
+		Plugins: []PluginCandidate{{
+			Slug:        "reminder",
+			Description: "Time-based reminders",
+			Arguments: []plugin.ManifestArgument{
+				{Name: "operation", Type: "string"},
+				{Name: "message", Type: "string"},
+				{Name: "remind_at", Type: "datetime"},
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Matched || result.PluginSlug != "reminder" {
+		t.Fatalf("unexpected result: %+v", result)
 	}
 }

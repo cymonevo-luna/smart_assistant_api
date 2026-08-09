@@ -5,7 +5,7 @@ import (
 )
 
 // matchByTriggers performs deterministic substring trigger matching against
-// plugin candidates. It is used by the mock classifier and as an OpenAI fallback.
+// plugin candidates. Retained for legacy unit tests only.
 func matchByTriggers(req ClassifyRequest) *ClassifyResult {
 	lower := strings.ToLower(req.Text)
 	for _, p := range req.Plugins {

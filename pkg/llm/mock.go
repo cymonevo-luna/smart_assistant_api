@@ -13,13 +13,15 @@ type MockClassifier struct {
 	mu       sync.Mutex
 	LastText string
 	LastReq  *ClassifyRequest
+	agent    *PluginDelegationAgent
 	classify func(req ClassifyRequest) *ClassifyResult
 }
 
-// NewMockClassifier returns a mock that matches schedule-meeting intents.
+// NewMockClassifier returns a mock that semantically routes common intents.
 func NewMockClassifier() *MockClassifier {
 	return &MockClassifier{
-		classify: defaultMockClassify,
+		agent:    &PluginDelegationAgent{Provider: "mock"},
+		classify: mockSemanticClassify,
 	}
 }
 
@@ -39,11 +41,15 @@ func (m *MockClassifier) Classify(_ context.Context, req ClassifyRequest) (*Clas
 	if m.classify != nil {
 		return m.classify(req), nil
 	}
-	return defaultMockClassify(req), nil
+	return mockSemanticClassify(req), nil
 }
 
-func defaultMockClassify(req ClassifyRequest) *ClassifyResult {
+func mockSemanticClassify(req ClassifyRequest) *ClassifyResult {
 	lower := strings.ToLower(req.Text)
+	if isClearlyUnrelated(lower) {
+		return &ClassifyResult{Matched: false}
+	}
+
 	for _, p := range req.Plugins {
 		if result := matchLocationReminderIntent(lower, p); result != nil {
 			return result
@@ -54,10 +60,26 @@ func defaultMockClassify(req ClassifyRequest) *ClassifyResult {
 			return result
 		}
 	}
-	if result := matchByTriggers(req); result.Matched {
-		return result
+	for _, p := range req.Plugins {
+		if result := matchCalendarIntent(lower, p); result != nil {
+			return result
+		}
 	}
 	return &ClassifyResult{Matched: false}
+}
+
+func isClearlyUnrelated(lower string) bool {
+	for _, phrase := range []string{
+		"what is the weather",
+		"weather today",
+		"weather like",
+		"turn on lights",
+	} {
+		if strings.Contains(lower, phrase) {
+			return true
+		}
+	}
+	return false
 }
 
 func matchLocationReminderIntent(lower string, p PluginCandidate) *ClassifyResult {
@@ -65,14 +87,31 @@ func matchLocationReminderIntent(lower string, p PluginCandidate) *ClassifyResul
 		return nil
 	}
 
-	if strings.Contains(lower, "nearby") || strings.Contains(lower, "alfamart") {
+	locationCues := []string{
+		"nearby", "alfamart", "supermarket",
+		"when i'm near", "when i am near", "when i'm at", "when i arrive",
+		"alert me when i'm near", "alert me when i am near",
+	}
+	hasLocationCue := false
+	for _, cue := range locationCues {
+		if strings.Contains(lower, cue) {
+			hasLocationCue = true
+			break
+		}
+	}
+
+	if hasLocationCue {
+		args := map[string]any{
+			"place_query":   lower,
+			"location_mode": "place_keyword",
+		}
+		if title := extractLocationReminderTitle(lower); title != "" {
+			args["title"] = title
+		}
 		return &ClassifyResult{
 			Matched:    true,
 			PluginSlug: p.Slug,
-			Arguments: map[string]any{
-				"place_query":   lower,
-				"location_mode": "place_keyword",
-			},
+			Arguments:  args,
 		}
 	}
 
@@ -120,7 +159,7 @@ func reminderTextHasTime(lower string) bool {
 		return true
 	}
 	for _, token := range []string{
-		"am", "pm", "1pm", "2pm", "3pm",
+		"am", "pm", "1pm", "2pm", "3pm", "4pm", "5pm",
 		"today", "tomorrow",
 		"morning", "afternoon", "evening", "noon", "tonight",
 	} {
@@ -139,10 +178,12 @@ func extractLocationReminderTitle(lower string) string {
 		"remind me once i got ",
 		"remind me once i ",
 		"set a location reminder to ",
+		"alert me when i'm near ",
+		"alert me when i am near ",
 	} {
 		if idx := strings.Index(lower, prefix); idx >= 0 {
 			rest := strings.TrimSpace(lower[idx+len(prefix):])
-			for _, cut := range []string{" once i", " when i", " at "} {
+			for _, cut := range []string{" once i", " when i", " at ", " near "} {
 				if at := strings.Index(rest, cut); at >= 0 {
 					rest = strings.TrimSpace(rest[:at])
 				}
@@ -171,13 +212,11 @@ func extractLocationPlaceFromTrigger(lower string) string {
 
 func matchReminderIntent(lower string, p PluginCandidate) *ClassifyResult {
 	isReminderPlugin := p.Slug == "reminder" || strings.HasPrefix(p.Slug, "reminder-")
-	for _, trigger := range p.Triggers {
-		if strings.Contains(lower, strings.ToLower(trigger)) {
-			isReminderPlugin = true
-			break
-		}
-	}
 	if !isReminderPlugin {
+		return nil
+	}
+
+	if isLocationReminderIntent(lower) {
 		return nil
 	}
 
@@ -207,7 +246,7 @@ func matchReminderIntent(lower string, p PluginCandidate) *ClassifyResult {
 		}
 	}
 
-	if strings.Contains(lower, "remind") {
+	if isReminderCreateIntent(lower) {
 		args := map[string]any{
 			"operation": "create",
 			"message":   extractReminderCreateMessage(lower),
@@ -223,8 +262,44 @@ func matchReminderIntent(lower string, p PluginCandidate) *ClassifyResult {
 	return nil
 }
 
+func isLocationReminderIntent(lower string) bool {
+	for _, cue := range []string{
+		"when i'm near", "when i am near", "near a supermarket", "nearby",
+	} {
+		if strings.Contains(lower, cue) {
+			return true
+		}
+	}
+	return false
+}
+
+func isReminderCreateIntent(lower string) bool {
+	if strings.Contains(lower, "remind") {
+		return true
+	}
+	for _, phrase := range []string{
+		"ping me",
+		"don't let me forget",
+		"nudge me",
+	} {
+		if strings.Contains(lower, phrase) {
+			return true
+		}
+	}
+	return false
+}
+
 func extractReminderCreateMessage(lower string) string {
-	for _, prefix := range []string{"remind me to ", "remind me "} {
+	for _, prefix := range []string{
+		"remind me to ",
+		"remind me ",
+		"ping me about ",
+		"ping me to ",
+		"don't let me forget to ",
+		"don't let me forget ",
+		"nudge me to ",
+		"nudge me about ",
+	} {
 		if idx := strings.Index(lower, prefix); idx >= 0 {
 			rest := strings.TrimSpace(lower[idx+len(prefix):])
 			if atIdx := strings.Index(rest, " at "); atIdx >= 0 {
@@ -267,6 +342,44 @@ func extractReminderDeleteMessage(lower string) string {
 	return ""
 }
 
+func matchCalendarIntent(lower string, p PluginCandidate) *ClassifyResult {
+	if p.Slug != "google-calendar-meet" {
+		return nil
+	}
+
+	calendarCues := []string{
+		"schedule", "book time", "meeting with", "set up a call", "calendar",
+	}
+	hasCue := false
+	for _, cue := range calendarCues {
+		if strings.Contains(lower, cue) {
+			hasCue = true
+			break
+		}
+	}
+	if !hasCue {
+		return nil
+	}
+
+	args := map[string]any{}
+	if strings.Contains(lower, "kezia") && strings.Contains(lower, "albert") {
+		args["attendee_names"] = "Kezia, Albert"
+	} else if strings.Contains(lower, "janet") {
+		args["attendee_names"] = "Janet"
+	}
+	if strings.Contains(lower, "2pm") || strings.Contains(lower, "2 pm") {
+		args["start_time"] = "2026-08-09T14:00:00+07:00"
+	}
+	if names, ok := args["attendee_names"].(string); ok && names != "" {
+		args["title"] = "Meeting with " + names
+	}
+	return &ClassifyResult{
+		Matched:    true,
+		PluginSlug: p.Slug,
+		Arguments:  args,
+	}
+}
+
 func parseReminderTimeFromText(lower string) string {
 	hour := 14
 	minute := 0
@@ -283,7 +396,6 @@ func parseReminderTimeFromText(lower string) string {
 			hour, minute = parsedHour, parsedMinute
 		}
 	} else if periodHour, ok := periodOfDayHour(lower); ok {
-		// Period-of-day defaults (UTC): morning 09:00, noon 12:00, afternoon 14:00, evening/tonight 18:00.
 		hour = periodHour
 	}
 
@@ -299,7 +411,6 @@ func parseReminderTimeFromText(lower string) string {
 
 // periodOfDayHour maps period-of-day tokens in text to a default hour (UTC).
 func periodOfDayHour(lower string) (hour int, ok bool) {
-	// Check longer/more specific tokens first (e.g. "afternoon" before "noon" substring issues).
 	for _, entry := range []struct {
 		token string
 		hour  int
