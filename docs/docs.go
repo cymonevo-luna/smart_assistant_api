@@ -2118,11 +2118,13 @@ const docTemplate = `{
             "type": "string",
             "enum": [
                 "composio",
+                "composio_mcp",
                 "http",
                 "builtin"
             ],
             "x-enum-varnames": [
                 "ExecutorTypeComposio",
+                "ExecutorTypeComposioMCP",
                 "ExecutorTypeHTTP",
                 "ExecutorTypeBuiltin"
             ]

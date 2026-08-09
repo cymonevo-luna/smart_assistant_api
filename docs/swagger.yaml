@@ -217,11 +217,13 @@ definitions:
   plugin.ExecutorType:
     enum:
     - composio
+    - composio_mcp
     - http
     - builtin
     type: string
     x-enum-varnames:
     - ExecutorTypeComposio
+    - ExecutorTypeComposioMCP
     - ExecutorTypeHTTP
     - ExecutorTypeBuiltin
   plugin.ManifestArgument:

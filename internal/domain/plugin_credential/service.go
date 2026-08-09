@@ -37,8 +37,45 @@ func (s *Service) Upsert(ctx context.Context, userPluginID, provider string, pay
 	if err != nil {
 		return response.NewInternal("failed to encode credentials").Wrap(err)
 	}
+	return s.upsertEncrypted(ctx, userPluginID, provider, string(plain), payload.ExpiresAt)
+}
 
-	encrypted, err := s.encryptor.Encrypt(string(plain))
+// UpsertComposio encrypts and stores Composio credentials for a user plugin install.
+func (s *Service) UpsertComposio(ctx context.Context, userPluginID string, payload ComposioPayload) error {
+	plain, err := json.Marshal(payload)
+	if err != nil {
+		return response.NewInternal("failed to encode credentials").Wrap(err)
+	}
+	return s.upsertEncrypted(ctx, userPluginID, ProviderComposio, string(plain), nil)
+}
+
+// GetComposio decrypts and returns Composio credentials for executor/setup use.
+func (s *Service) GetComposio(ctx context.Context, userPluginID string) (ComposioPayload, error) {
+	cred, err := s.repo.FindByUserPluginID(ctx, userPluginID)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return ComposioPayload{}, response.NewNotFound("composio credentials not found")
+		}
+		return ComposioPayload{}, response.NewInternal("failed to load credentials").Wrap(err)
+	}
+	if cred.Provider != ProviderComposio {
+		return ComposioPayload{}, response.NewNotFound("composio credentials not found")
+	}
+
+	plain, err := s.encryptor.Decrypt(cred.EncryptedPayload)
+	if err != nil {
+		return ComposioPayload{}, response.NewInternal("failed to decrypt credentials").Wrap(err)
+	}
+
+	var payload ComposioPayload
+	if err := json.Unmarshal([]byte(plain), &payload); err != nil {
+		return ComposioPayload{}, response.NewInternal("failed to decode credentials").Wrap(err)
+	}
+	return payload, nil
+}
+
+func (s *Service) upsertEncrypted(ctx context.Context, userPluginID, provider, plain string, expiresAt *time.Time) error {
+	encrypted, err := s.encryptor.Encrypt(plain)
 	if err != nil {
 		return response.NewInternal("failed to encrypt credentials").Wrap(err)
 	}
@@ -50,8 +87,9 @@ func (s *Service) Upsert(ctx context.Context, userPluginID, provider string, pay
 	}
 
 	if existing != nil {
+		existing.Provider = provider
 		existing.EncryptedPayload = encrypted
-		existing.ExpiresAt = payload.ExpiresAt
+		existing.ExpiresAt = expiresAt
 		existing.UpdatedAt = now
 		if err := s.repo.Update(ctx, existing.ID, existing); err != nil {
 			return response.NewInternal("failed to update credentials").Wrap(err)
@@ -64,7 +102,7 @@ func (s *Service) Upsert(ctx context.Context, userPluginID, provider string, pay
 		UserPluginID:     userPluginID,
 		Provider:         provider,
 		EncryptedPayload: encrypted,
-		ExpiresAt:        payload.ExpiresAt,
+		ExpiresAt:        expiresAt,
 		CreatedAt:        now,
 		UpdatedAt:        now,
 	}

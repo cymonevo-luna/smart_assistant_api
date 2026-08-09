@@ -14,9 +14,10 @@ const (
 type ExecutorType string
 
 const (
-	ExecutorTypeComposio ExecutorType = "composio"
-	ExecutorTypeHTTP     ExecutorType = "http"
-	ExecutorTypeBuiltin  ExecutorType = "builtin"
+	ExecutorTypeComposio    ExecutorType = "composio"
+	ExecutorTypeComposioMCP ExecutorType = "composio_mcp"
+	ExecutorTypeHTTP        ExecutorType = "http"
+	ExecutorTypeBuiltin     ExecutorType = "builtin"
 )
 
 // ManifestArgument describes a slot the plugin may need filled via follow-up.
