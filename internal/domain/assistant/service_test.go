@@ -17,14 +17,17 @@ import (
 )
 
 type recordingClassifier struct {
-	mu   sync.Mutex
-	last string
+	mu      sync.Mutex
+	last    string
+	lastReq *llm.ClassifyRequest
 }
 
 func (r *recordingClassifier) Classify(_ context.Context, req llm.ClassifyRequest) (*llm.ClassifyResult, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.last = req.Text
+	reqCopy := req
+	r.lastReq = &reqCopy
 	return &llm.ClassifyResult{Matched: false}, nil
 }
 
@@ -32,6 +35,12 @@ func (r *recordingClassifier) lastText() string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.last
+}
+
+func (r *recordingClassifier) lastRequest() *llm.ClassifyRequest {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.lastReq
 }
 
 type fakeSessionRepo struct {
@@ -550,5 +559,84 @@ func TestProcessMessageClassifierError(t *testing.T) {
 	}
 	if out.Reply.Text != classifierUnavailableText {
 		t.Fatalf("expected classifier unavailable text, got %q", out.Reply.Text)
+	}
+}
+
+func TestClassifyAndExecutePassesRecentMessages(t *testing.T) {
+	sessions := newFakeSessionRepo()
+	messages := &fakeMessageRepo{}
+	settingsRepo := &fakeSettingsRepo{
+		settings: &assistantsettings.Settings{
+			UserID:    "user-1",
+			WakeWord:  "Jarvis",
+			UpdatedAt: time.Now().UTC(),
+		},
+	}
+	settingsSvc := assistantsettings.NewService(settingsRepo)
+	recorder := &recordingClassifier{}
+	log, _ := logger.New("debug", false)
+
+	catalog := plugin.Plugin{
+		ID:   "plugin-1",
+		Slug: "lights",
+		Name: "Lights",
+		Manifest: plugin.PluginManifest{
+			Triggers:      []string{"turn on lights"},
+			RequiredSetup: false,
+			SetupType:     plugin.SetupTypeNone,
+			Executor:      plugin.Executor{Type: plugin.ExecutorTypeBuiltin, Config: map[string]any{}},
+		},
+	}
+	userPlugins := fakeUserPluginRepo{installs: []userplugin.UserPlugin{{
+		ID: "install-1", UserID: "user-1", PluginID: "plugin-1", Enabled: true,
+		SetupStatus: userplugin.SetupStatusCompleted,
+	}}}
+
+	svc := NewService(sessions, messages, settingsSvc, userPlugins, fakePluginRepo{plugins: []plugin.Plugin{catalog}}, recorder, NewStubExecutor(log), nil, log)
+
+	session := &Session{
+		ID:        "sess-1",
+		UserID:    "user-1",
+		Status:    SessionStatusActive,
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	}
+	if err := sessions.Create(context.Background(), session); err != nil {
+		t.Fatal(err)
+	}
+
+	prior := []Message{
+		{ID: "m1", SessionID: "sess-1", Role: MessageRoleUser, Content: "hello there"},
+		{ID: "m2", SessionID: "sess-1", Role: MessageRoleAssistant, Content: "Hi! How can I help?"},
+	}
+	for i := range prior {
+		if err := messages.Create(context.Background(), &prior[i]); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	_, err := svc.ProcessMessage(context.Background(), "user-1", "sess-1", ProcessMessageInput{
+		Text:   "turn on lights",
+		Source: MessageSourceButton,
+	})
+	if err != nil {
+		t.Fatalf("ProcessMessage: %v", err)
+	}
+
+	req := recorder.lastRequest()
+	if req == nil {
+		t.Fatal("expected classifier to be called")
+	}
+	if len(req.RecentMessages) != 2 {
+		t.Fatalf("expected 2 recent messages, got %d", len(req.RecentMessages))
+	}
+	if req.RecentMessages[0].Role != "user" || req.RecentMessages[0].Content != "hello there" {
+		t.Fatalf("unexpected first recent message: %+v", req.RecentMessages[0])
+	}
+	if req.RecentMessages[1].Role != "assistant" || req.RecentMessages[1].Content != "Hi! How can I help?" {
+		t.Fatalf("unexpected second recent message: %+v", req.RecentMessages[1])
+	}
+	if req.Text != "turn on lights" {
+		t.Fatalf("expected current text in request, got %q", req.Text)
 	}
 }

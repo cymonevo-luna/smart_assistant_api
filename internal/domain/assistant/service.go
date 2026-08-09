@@ -25,6 +25,9 @@ const (
 	classifierUnavailableText   = "I'm having trouble understanding that right now. Please try again in a moment."
 	actionReasonSetupIncomplete = "setup_incomplete"
 	actionReasonPluginDisabled  = "plugin_disabled"
+
+	// delegationRecentMessagesLimit is how many prior transcript lines are sent to the classifier.
+	delegationRecentMessagesLimit = 6
 )
 
 // installedPluginState categorises why an install may or may not be usable.
@@ -205,7 +208,7 @@ func (s *Service) orchestrate(ctx context.Context, userID string, session *Sessi
 	if session.PendingAction != nil {
 		return s.handlePendingAction(ctx, userID, session, text)
 	}
-	return s.classifyAndExecute(ctx, userID, text)
+	return s.classifyAndExecute(ctx, userID, session.ID, text)
 }
 
 func (s *Service) handlePendingAction(ctx context.Context, userID string, session *Session, text string) (Reply, *PendingAction, SessionStatus, error) {
@@ -277,7 +280,7 @@ func (s *Service) handlePendingAction(ctx context.Context, userID string, sessio
 	return s.advancePlugin(ctx, userID, eligible, pending.Arguments, text)
 }
 
-func (s *Service) classifyAndExecute(ctx context.Context, userID, text string) (Reply, *PendingAction, SessionStatus, error) {
+func (s *Service) classifyAndExecute(ctx context.Context, userID, sessionID, text string) (Reply, *PendingAction, SessionStatus, error) {
 	states, err := s.listInstalledPluginStates(ctx, userID)
 	if err != nil {
 		return Reply{}, nil, SessionStatusActive, err
@@ -318,9 +321,15 @@ func (s *Service) classifyAndExecute(ctx context.Context, userID, text string) (
 		})
 	}
 
+	recentMessages, err := s.recentMessagesForClassification(ctx, sessionID, text)
+	if err != nil {
+		return Reply{}, nil, SessionStatusActive, err
+	}
+
 	result, err := s.classifier.Classify(ctx, llm.ClassifyRequest{
-		Text:    text,
-		Plugins: candidates,
+		Text:           text,
+		Plugins:        candidates,
+		RecentMessages: recentMessages,
 	})
 	if err != nil {
 		s.log.Error("intent classification failed", logger.Err(err))
@@ -346,6 +355,43 @@ func (s *Service) classifyAndExecute(ctx context.Context, userID, text string) (
 		args = map[string]any{}
 	}
 	return s.advancePlugin(ctx, userID, *matched, args, text)
+}
+
+func (s *Service) recentMessagesForClassification(ctx context.Context, sessionID, currentText string) ([]llm.ConversationTurn, error) {
+	msgs, err := s.messages.FindBySessionID(ctx, sessionID)
+	if err != nil {
+		return nil, response.NewInternal("failed to load recent messages").Wrap(err)
+	}
+
+	currentText = strings.TrimSpace(currentText)
+	if len(msgs) > 0 {
+		last := msgs[len(msgs)-1]
+		if last.Role == MessageRoleUser && strings.TrimSpace(last.Content) == currentText {
+			msgs = msgs[:len(msgs)-1]
+		}
+	}
+
+	start := 0
+	if len(msgs) > delegationRecentMessagesLimit {
+		start = len(msgs) - delegationRecentMessagesLimit
+	}
+
+	out := make([]llm.ConversationTurn, 0, len(msgs)-start)
+	for i := start; i < len(msgs); i++ {
+		m := msgs[i]
+		if m.Role != MessageRoleUser && m.Role != MessageRoleAssistant {
+			continue
+		}
+		content := strings.TrimSpace(m.Content)
+		if content == "" {
+			continue
+		}
+		out = append(out, llm.ConversationTurn{
+			Role:    string(m.Role),
+			Content: content,
+		})
+	}
+	return out, nil
 }
 
 func (s *Service) advancePlugin(ctx context.Context, userID string, eligible eligiblePlugin, args map[string]any, text string) (Reply, *PendingAction, SessionStatus, error) {

@@ -71,8 +71,10 @@ func mockSemanticClassify(req ClassifyRequest) *ClassifyResult {
 func isClearlyUnrelated(lower string) bool {
 	for _, phrase := range []string{
 		"what is the weather",
+		"what's the weather",
 		"weather today",
 		"weather like",
+		"weather in",
 		"turn on lights",
 	} {
 		if strings.Contains(lower, phrase) {
@@ -343,12 +345,12 @@ func extractReminderDeleteMessage(lower string) string {
 }
 
 func matchCalendarIntent(lower string, p PluginCandidate) *ClassifyResult {
-	if p.Slug != "google-calendar-meet" {
+	if !isCalendarMeetSlug(p.Slug) {
 		return nil
 	}
 
 	calendarCues := []string{
-		"schedule", "book time", "meeting with", "set up a call", "calendar",
+		"schedule", "book time", "book a call", "meeting with", "set up a call", "calendar",
 	}
 	hasCue := false
 	for _, cue := range calendarCues {
@@ -369,6 +371,8 @@ func matchCalendarIntent(lower string, p PluginCandidate) *ClassifyResult {
 	}
 	if strings.Contains(lower, "2pm") || strings.Contains(lower, "2 pm") {
 		args["start_time"] = "2026-08-09T14:00:00+07:00"
+	} else if strings.Contains(lower, " at 2") || strings.Contains(lower, " at 2pm") {
+		args["start_time"] = "2026-08-09T14:00:00+07:00"
 	}
 	if names, ok := args["attendee_names"].(string); ok && names != "" {
 		args["title"] = "Meeting with " + names
@@ -378,6 +382,10 @@ func matchCalendarIntent(lower string, p PluginCandidate) *ClassifyResult {
 		PluginSlug: p.Slug,
 		Arguments:  args,
 	}
+}
+
+func isCalendarMeetSlug(slug string) bool {
+	return slug == "google-calendar-meet" || strings.HasPrefix(slug, "google-calendar-meet-")
 }
 
 func parseReminderTimeFromText(lower string) string {

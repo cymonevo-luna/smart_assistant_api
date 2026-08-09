@@ -58,6 +58,7 @@ func runSuite(m *testing.M) int {
 	_ = os.Setenv("COMPOSIO_API_KEY", "integration-composio-key")
 	_ = os.Setenv("COMPOSIO_BASE_URL", mockComposioAPI.URL())
 	_ = os.Setenv("PLACES_PROVIDER", "mock")
+	_ = os.Setenv("LLM_PROVIDER", "mock")
 
 	a, err := app.New(ctx)
 	if err != nil {
